@@ -13,19 +13,18 @@ Description: "Defines the mandatory capabilities for Belgian eHealth Hubs and re
 * format[0] = #json
 * format[1] = #xml
 * rest.mode = #server
-* rest.documentation = "Belgian Federated Interhub Document Sharing Server (MHD ITI-67 Responder / ITI-68 Responder). Mandates HTTP POST for both metadata search and document retrieval to prevent sensitive patient data leakage in network access logs."
+* rest.documentation = "Belgian Federated Interhub Document Sharing Server (MHD ITI-67 Responder / ITI-68 Responder). Exposes exactly two transactions — getTransactionList and getTransaction — and mandates HTTP POST for both, so that neither the patient SSIN nor the clinical search criteria ever appear in a URL, a proxy access log or a browser history."
 
 // Resource: DocumentReference (for getTransactionList / ITI-67 discovery & $retrieve-document)
 * rest.resource[0].type = #DocumentReference
 * rest.resource[0].profile = "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-documentreference"
+* rest.resource[0].supportedProfile[0] = "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-minimal-documentreference"
 * rest.resource[0].interaction[0].code = #search-type
-* rest.resource[0].interaction[0].documentation = "Mandatory document discovery via HTTP POST to [base]/DocumentReference/_search with application/x-www-form-urlencoded body. Responding hubs SHALL support POST search. Servers MAY additionally support GET search where required for generic IHE MHD conformance."
-* rest.resource[0].interaction[1].code = #read
-* rest.resource[0].interaction[1].documentation = "Optional/conditional read of DocumentReference resources by ID."
+* rest.resource[0].interaction[0].documentation = "Mandatory document discovery via HTTP POST to [base]/DocumentReference/_search with application/x-www-form-urlencoded body. Responding hubs SHALL support POST search. Servers MAY additionally support GET search where required for generic IHE MHD conformance, but Belgian consumers SHALL NOT use it. No read, create, update, delete or history interaction is part of this transaction: the Interhub surface is read-only and consists of this search plus $retrieve-document."
 
 * rest.resource[0].operation[0].name = "retrieve-document"
 * rest.resource[0].operation[0].definition = "https://www.ehealth.fgov.be/standards/fhir/interhub/OperationDefinition/be-op-retrieve-document"
-* rest.resource[0].operation[0].documentation = "Document retrieval operation invoked via HTTP POST [base]/DocumentReference/$retrieve-document. Accepts a Parameters resource referencing the target DocumentReference and returns the full Document Bundle (or Binary payload) directly."
+* rest.resource[0].operation[0].documentation = "Document retrieval operation invoked via HTTP POST [base]/DocumentReference/$retrieve-document. Accepts a Parameters resource referencing the target DocumentReference and returns the BeInterhubDocumentBundle (Bundle.type = #document) directly, or — under Accept: application/pdf — the hub-rendered PDF as a raw binary stream. This operation replaces a FHIR read on Bundle or Binary: a GET read would put the document identifier in the URL, which the Belgian profile forbids (see transactions.md §3.2)."
 
 * rest.resource[0].searchParam[0].name = "patient.identifier"
 * rest.resource[0].searchParam[0].type = #token
@@ -59,11 +58,17 @@ Description: "Defines the mandatory capabilities for Belgian eHealth Hubs and re
 * rest.resource[0].searchParam[7].type = #token
 * rest.resource[0].searchParam[7].documentation = "Universal or local document identifier."
 
-// Resource: Bundle (for getTransaction / ITI-68 document retrieval)
-* rest.resource[1].type = #Bundle
-* rest.resource[1].profile = "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-document-bundle"
-* rest.resource[1].interaction[0].code = #read
-* rest.resource[1].documentation = "Retrieval of complete FHIR Document Bundles (type=document) by ID where standard GET read is supported in backend/downstream repositories."
+* rest.resource[0].searchParam[8].name = "searchtype"
+* rest.resource[0].searchParam[8].type = #token
+* rest.resource[0].searchParam[8].documentation = "Belgian search scope: 'federated' (default) lets the responding hub fan out to its connected hub sources and partner hubs; 'local' restricts the answer to the hub's own index, and therefore reports no downstream partial failure."
+
+* rest.resource[0].searchParam[9].name = "_count"
+* rest.resource[0].searchParam[9].type = #number
+* rest.resource[0].searchParam[9].documentation = "Maximum number of results per page."
+
+* rest.resource[0].searchParam[10].name = "_sort"
+* rest.resource[0].searchParam[10].type = #string
+* rest.resource[0].searchParam[10].documentation = "Result ordering: '-date' (default, most recent first) or 'date'."
 
 // -------------------------------------------------------------------------
 // Belgian Interhub Document Consumer CapabilityStatement
@@ -80,21 +85,17 @@ Description: "Defines the mandatory capabilities for initiating Belgian eHealth 
 * format[0] = #json
 * format[1] = #xml
 * rest.mode = #client
-* rest.documentation = "Belgian Federated Interhub Document Consumer (MHD ITI-67 Initiating Hub / ITI-68 Initiating Hub). Initiating consumers SHALL execute metadata queries and document retrievals via HTTP POST."
+* rest.documentation = "Belgian Federated Interhub Document Consumer (MHD ITI-67 Initiating Hub / ITI-68 Initiating Hub). Initiating consumers SHALL execute metadata queries and document retrievals via HTTP POST, and SHALL NOT rely on any other interaction of the responding hub."
 
 * rest.resource[0].type = #DocumentReference
 * rest.resource[0].profile = "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-documentreference"
+* rest.resource[0].supportedProfile[0] = "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-minimal-documentreference"
 * rest.resource[0].interaction[0].code = #search-type
-* rest.resource[0].interaction[0].documentation = "Consumers SHALL execute discovery queries via HTTP POST to [base]/DocumentReference/_search with search parameters encoded in the request body as application/x-www-form-urlencoded."
-* rest.resource[0].interaction[1].code = #read
+* rest.resource[0].interaction[0].documentation = "Consumers SHALL execute discovery queries via HTTP POST to [base]/DocumentReference/_search with search parameters encoded in the request body as application/x-www-form-urlencoded. Pagination SHALL also use POST, replaying the opaque continuation parameter carried in Bundle.link[relation=next]."
 
 * rest.resource[0].operation[0].name = "retrieve-document"
 * rest.resource[0].operation[0].definition = "https://www.ehealth.fgov.be/standards/fhir/interhub/OperationDefinition/be-op-retrieve-document"
-* rest.resource[0].operation[0].documentation = "Consumers SHALL execute document retrieval via HTTP POST [base]/DocumentReference/$retrieve-document, providing the target DocumentReference in the request Parameters."
-
-* rest.resource[1].type = #Bundle
-* rest.resource[1].profile = "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-document-bundle"
-* rest.resource[1].interaction[0].code = #read
+* rest.resource[0].operation[0].documentation = "Consumers SHALL execute document retrieval via HTTP POST [base]/DocumentReference/$retrieve-document, providing the target DocumentReference in the request Parameters, and SHALL NOT attempt a GET read on the returned Bundle or Binary."
 
 // -------------------------------------------------------------------------
 // Belgian Interhub Retrieve Document OperationDefinition

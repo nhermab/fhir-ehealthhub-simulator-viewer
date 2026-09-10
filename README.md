@@ -11,7 +11,7 @@ cd fhir-ehealthhub-simulator-viewer
 npm start
 ```
 
-Open **http://localhost:4173**. The initial demo search uses synthetic SSIN `79080412345` and four copied DocumentReference fixtures. Demo mode works without Java or network access. The bundled Minimal reference intentionally has no retrievable document fixture and returns 404. The Java repository can return additional/duplicate references from its searchset seed; demo results are the four standalone metadata files.
+Open **http://localhost:4173**. The initial demo search uses synthetic SSIN `79080412345` and four copied DocumentReference fixtures. Demo mode works without Java or network access, and mirrors the simulator wire-for-wire: the same two transactions, the same 400/404/406/410 responses, the same opaque paging, and the same `not-supported` refusal for any other path. The bundled Minimal reference intentionally has no retrievable payload (404) and no hub PDF rendering (406).
 
 To use the Java app, start it separately, open **Connections**, select **Live**, use `http://localhost:8080/fhir`, keep **Local proxy**, and save. Then run a document search. **Test connection** uses the saved settings.
 
@@ -26,7 +26,7 @@ Origins are an exact server-side allowlist. The client can configure endpoints w
 ## Workspace
 
 - Document discovery via ITI-67 POST form search; canonical and OID SSIN systems; optional modulo-97 validation; category/type tokens, repeated date bounds, authors, status, IDs, identifiers, local/federated scope, ordering and count.
-- Searchset pagination using next-link query parameters in a new POST to `_search`. Opaque server-specific pagination links need an adapter; the provided simulator does not emit pagination links.
+- Searchset pagination using next-link query parameters in a new POST to `_search`. The simulator issues an **opaque `_continuation` token** in `Bundle.link[relation=next]`, so the search criteria never travel in a URL; the viewer simply replays whatever parameters that link carries, which also works with other servers' opaque continuation schemes.
 - Separate partial-failure OperationOutcome notices preserve successful documents. Details retain Belgian error codings in the inspector and traffic trace.
 - Minimal and Comprehensive metadata: contained patient/parties, CD-HCPARTY roles, confidentiality, patient access, home community, source record time, ETK metadata, identifiers and replacement relationships.
 - ITI-68 POST `$retrieve-document`, FHIR document Bundles and negotiated PDF. Console supports both literal references and business-identifier Parameters. HTTP errors including withdrawn 410 remain visible.
@@ -69,7 +69,7 @@ npm run build
 
 `npm test` covers wire contracts, SSIN rules, filtering, structural checks, reference closure, request isolation, header redaction, cryptographic proof verification and token request construction. Browser tests cover desktop/mobile discovery, clinical/PDF retrieval, partial outcomes, error responses, key generation, secret persistence, source browsing, filtering and pagination.
 
-With the viewer and Java simulator running, `node tests/live-integration.mjs` checks live proxy interoperability and origin guards. The integration test sends only read/search/retrieve requests, using fixture patient data.
+With the viewer and Java simulator running, `node tests/live-integration.mjs` checks live proxy interoperability, origin guards, opaque POST pagination, and that the Java server refuses everything outside the two transactions exactly as demo mode does. The integration test sends only search/retrieve requests, using fixture patient data.
 
 `npm run build` produces `dist/` for static hosting. Static hosting supports demo and direct CORS connections. Use `npm start` for the local proxy. Runtime code uses native ES modules, Fetch and Web Crypto; Playwright is a development-only dependency.
 

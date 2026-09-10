@@ -127,5 +127,6 @@ r = await fetch(base + "/api/proxy", {
 });
 assert.equal(r.status, 403);
 console.log(
-  "Live Java integration: metadata, search, partial failure, FHIR retrieval, PDF, 410, 404, 400 and proxy origin guards passed.",
+  "Live Java integration: metadata, search, partial failure, FHIR retrieval, PDF, opaque POST pagination, " +
+    "410, 406, 404, 400, the two-transaction surface and proxy origin guards passed.",
 );
