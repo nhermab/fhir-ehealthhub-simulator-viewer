@@ -1,5 +1,17 @@
 // Code examples and starter pages for connecting to the Belgian Interhub FHIR backend
 import { SSIN, SSIN_OID } from "./fhir.js";
+import { highlight } from "./highlight.js";
+
+/** Card ids carry their language: py-quickstart, java-hapi, curl-search, ... */
+const LANG_BY_PREFIX = {
+  py: "python",
+  js: "javascript",
+  java: "java",
+  cs: "csharp",
+  curl: "bash",
+};
+const langOf = (id, explicit) =>
+  explicit || LANG_BY_PREFIX[String(id).split("-")[0]] || "plain";
 
 const esc = (x) =>
   String(x ?? "").replace(
@@ -91,7 +103,10 @@ function renderCodeCard({
   runCommand,
   code,
   notes,
+  lang,
 }) {
+  const language = langOf(id, lang);
+  const lineCount = String(code ?? "").split("\n").length;
   return `<article class="panel code-card">
     <header class="code-card-header">
       <div class="code-card-title">
@@ -106,7 +121,7 @@ function renderCodeCard({
     </header>
     ${description ? `<p class="code-card-desc">${description}</p>` : ""}
     <div class="code-card-body">
-      <pre class="code-block" id="${esc(id)}" tabindex="0"><code>${esc(code)}</code></pre>
+      <div class="code-shell" data-lang="${esc(language)}"><div class="code-gutter" aria-hidden="true">${Array.from({ length: lineCount }, (_, i) => i + 1).join("\n")}</div><pre class="code-block" id="${esc(id)}" tabindex="0"><code>${highlight(code, language)}</code></pre></div>
       ${notes ? `<div class="code-notes">${notes}</div>` : ""}
     </div>
   </article>`;

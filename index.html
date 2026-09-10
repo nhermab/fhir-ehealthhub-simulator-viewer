@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#102b29" />
+    <meta name="theme-color" content="#0b1412" />
     <meta
       name="description"
       content="Belgian eHealth Interhub MHD document workspace and FHIR developer tools"
@@ -11,6 +11,22 @@
     <title>Interhub · Document workspace</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/styles.css" />
+    <script>
+      // Paint the saved theme before the stylesheet applies, so a reload never
+      // flashes the wrong palette. The app re-applies this on every render.
+      try {
+        const saved = JSON.parse(
+          localStorage.getItem("interhub-settings") || "{}",
+        ).theme;
+        document.documentElement.dataset.theme =
+          saved === "light" || saved === "dark"
+            ? saved
+            : saved === "system" &&
+                matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+      } catch {}
+    </script>
   </head>
   <body>
     <a class="skip" href="#main">Skip to workspace</a>

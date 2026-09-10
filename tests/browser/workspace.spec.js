@@ -11,7 +11,7 @@ test("document search, metadata, clinical retrieval, PDF and partial failure", a
     path: `test-results/${testInfo.project.name}-workspace.png`,
     fullPage: true,
   });
-  await page.locator('[data-id="DocRefLabReportContainedExample"]').click();
+  await page.locator('.doc-row[data-id="DocRefLabReportContainedExample"]').click();
   await page.getByRole("tab", { name: "Checks" }).click();
   await expect(page.locator(".check-row.fail")).toHaveCount(0);
   await page
@@ -46,7 +46,7 @@ test("console, error responses, authentication persistence and guide", async ({
   await page.getByRole("button", { name: "410 Gone", exact: true }).click();
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.locator(".response-panel")).toContainText("410");
-  await expect(page.locator(".response-panel .json")).toContainText(
+  await expect(page.locator(".response-panel .jsonview")).toContainText(
     "withdrawn",
   );
   await page.locator('a[href="#auth"]').click();
@@ -60,29 +60,25 @@ test("console, error responses, authentication persistence and guide", async ({
   await page.reload();
   await expect(page.getByLabel("Bearer / DPoP access token")).toHaveValue("");
   await page.locator('a[href="#guide"]').click();
-  await expect(page.locator("#guide-source")).toContainText(
+  await expect(page.locator("#guide-body")).toContainText(
     "Interhub Transactions",
   );
-  await page
-    .getByRole("button", { name: "FSH · Minimal", exact: true })
-    .click();
-  await expect(page.locator("#guide-source")).toContainText(
+  await expect(page.locator("#guide-body h2").first()).toBeVisible();
+  await page.getByRole("button", { name: "FSH · Minimal", exact: true }).click();
+  await expect(page.locator("#guide-body")).toContainText(
     "BeInterhubMinimalDocumentReference",
   );
+  await expect(page.locator("#guide-body .tk-kw").first()).toBeVisible();
 });
 test("filters, empty state, pagination and mobile layout", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".doc-row")).toHaveCount(4);
-  await page
-    .getByRole("button", { name: "Telemonitoring", exact: true })
-    .click();
+  await page.getByRole("button", { name: /^Telemonitoring/ }).click();
   await expect(page.locator(".doc-row")).toHaveCount(1);
   await page.getByLabel("Filter returned documents").fill("no match");
   await expect(page.locator("#document-rows")).toContainText("No documents");
   await page.getByLabel("Filter returned documents").fill("");
-  await page
-    .getByRole("button", { name: "All documents", exact: true })
-    .click();
+  await page.getByRole("button", { name: /^All documents/ }).click();
   await page.locator(".advanced summary").click();
   await page.getByLabel("Results per page").fill("1");
   await page.getByRole("button", { name: "Find documents" }).click();
@@ -175,7 +171,7 @@ test("live Java search and retrieval through local proxy", async ({ page }) => {
   await page.getByRole("button", { name: "Find documents" }).click();
   await expect(page.locator(".doc-row").first()).toBeVisible();
   await page
-    .locator('[data-id="DocRefLabReportContainedExample"]')
+    .locator('.doc-row[data-id="DocRefLabReportContainedExample"]')
     .first()
     .click();
   await page

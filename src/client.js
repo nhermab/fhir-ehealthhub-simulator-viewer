@@ -20,7 +20,7 @@ export const defaults = {
   scope: "",
   audience: "",
   grant: "credentials",
-  theme: "light",
+  theme: "dark",
 };
 const fixture = async (path) => {
   const r = await fetch("/fixtures/" + path);
@@ -190,7 +190,10 @@ const PAYLOAD_BUNDLES = {
   DocRefTelemonitoringExample: "BundleTelemonitoringExample",
 };
 const encodeContinuation = (params) =>
-  btoa(params.toString()).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  btoa(params.toString())
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 const decodeContinuation = (token) => {
   try {
     return new URLSearchParams(
@@ -350,7 +353,10 @@ export async function demoRequest(path, request, settings) {
         d.masterIdentifier?.value === id ||
         d.identifier?.some((i) => i.value === id),
     );
-    if (doc?.status === "entered-in-error" || (!doc && /withdrawn|gone/i.test(id)))
+    if (
+      doc?.status === "entered-in-error" ||
+      (!doc && /withdrawn|gone/i.test(id))
+    )
       return json(
         outcome(
           "not-found",

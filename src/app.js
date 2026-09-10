@@ -25,6 +25,16 @@ import {
   codeCsharpPage,
   codeCurlPage,
 } from "./code-examples.js";
+import {
+  highlight,
+  codeBlock,
+  jsonTree,
+  detectLanguage,
+  countNodes,
+} from "./highlight.js";
+import { renderMarkdown, tableOfContents } from "./markdown.js";
+import { diffHtml, jsonDiffHtml } from "./diff.js";
+import { snippet, generators, toHar } from "./snippets.js";
 const $ = (s) => document.querySelector(s);
 const esc = (x) =>
   String(x ?? "").replace(
@@ -62,6 +72,14 @@ const icons = {
   upload: "M12 16V3m-5 5 5-5 5 5M4 17v4h16v-4",
   network:
     "M12 3v6M4 15v-3h16v3M9 2h6v5H9zM1 16h6v5H1zM9 16h6v5H9zM17 16h6v5h-6zM12 12v4",
+  moon: "M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z",
+  play: "M6 3l14 9-14 9z",
+  diff: "M9 3v14M9 3 5 7m4-4 4 4M15 21V7m0 14 4-4m-4 4-4-4",
+  keyboard: "M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12",
+  layers: "m12 2 9 5-9 5-9-5zM3 12l9 5 9-5M3 17l9 5 9-5",
+  trash: "M4 6h16M9 6V4h6v2M6 6l1 15h10l1-15M10 11v6M14 11v6",
+  filter: "M3 4h18l-7 8v7l-4 2v-9z",
+  bolt: "m13 2-9 12h7l-1 8 9-12h-7z",
 };
 const icon = (name, cls = "") =>
   `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${icons[name] || icons.file}"/></svg>`;
@@ -85,8 +103,12 @@ const select = (label, name, options, val) =>
   `<label class="field"><span>${esc(label)}</span><select name="${name}">${options.map(([v, t]) => `<option value="${esc(v)}" ${v === val ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`;
 const area = (label, name, val = "", extra = "") =>
   `<label class="field"><span>${esc(label)}</span><textarea name="${name}" spellcheck="false" ${extra}>${esc(val)}</textarea></label>`;
-const json = (x) =>
-  `<pre class="json" tabindex="0">${esc(typeof x === "string" ? x : pretty(x))}</pre>`;
+const jsonText = (x) => (typeof x === "string" ? x : pretty(x));
+/** Compact, syntax-highlighted block. Pass an id for the full JSON viewer. */
+const json = (x, id, options) =>
+  id
+    ? jsonView(x, id, options)
+    : `<div class="json">${codeBlock(jsonText(x), typeof x === "string" ? detectLanguage(x) : "json")}</div>`;
 let saved = {};
 try {
   saved = JSON.parse(localStorage.getItem("interhub-settings") || "{}");
@@ -144,6 +166,19 @@ const state = {
     accept: "application/fhir+json; fhirVersion=4.0",
     body: "",
   },
+  // JSON viewer state, keyed by viewer id, so re-renders keep their shape.
+  jsonViews: {},
+  jsonCollapsed: {},
+  sort: "-date",
+  group: "none",
+  compare: [],
+  snippetKind: "curl",
+  logFilter: "",
+  guideMode: "rendered",
+  guideQuery: "",
+  palette: { open: false, query: "", index: 0 },
+  overlay: "",
+  lastLatency: null,
 };
 state.console.body = searchParams(state.query).toString();
 const pages = {
@@ -193,12 +228,136 @@ const pages = {
     "Raw HTTP requests for testing the Belgian Interhub backend from the command line.",
   ],
 };
+const media =
+  typeof matchMedia === "function"
+    ? matchMedia("(prefers-color-scheme: light)")
+    : null;
+/** The theme actually painted: "system" follows the operating system. */
+function effectiveTheme() {
+  const choice = state.settings.theme;
+  if (choice === "light" || choice === "dark") return choice;
+  return media?.matches ? "light" : "dark";
+}
+media?.addEventListener?.("change", () => {
+  if (state.settings.theme === "system") render();
+});
+
+/** Raw text behind each rendered JSON viewer, for copy / download actions. */
+const jsonSources = new Map();
+
 function notify(message) {
   $("#toast").textContent = message;
   $("#toast").classList.add("show");
   clearTimeout(notify.timer);
   notify.timer = setTimeout(() => $("#toast").classList.remove("show"), 3500);
 }
+
+/* ------------------------------------------------------------------ *
+ * JSON viewer
+ * ------------------------------------------------------------------ */
+
+const tryParse = (text) => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+const bytesLabel = (n) =>
+  n < 1024
+    ? `${n} B`
+    : n < 1048576
+      ? `${(n / 1024).toFixed(1)} kB`
+      : `${(n / 1048576).toFixed(2)} MB`;
+
+/**
+ * A JSON payload with a collapsible tree, a highlighted raw view, in-place
+ * filtering, path copying, and copy / download. `id` scopes the view state so
+ * a full re-render keeps the mode, wrapping, and which nodes were collapsed.
+ */
+function jsonView(value, id, options = {}) {
+  const view = (state.jsonViews[id] ||= { mode: "tree", wrap: false });
+  const text = jsonText(value);
+  const parsed = typeof value === "string" ? tryParse(text) : value;
+  const treeable = parsed !== null && typeof parsed === "object";
+  const lang =
+    typeof value === "string"
+      ? detectLanguage(text, options.contentType)
+      : "json";
+  const mode = treeable ? view.mode : "raw";
+  jsonSources.set(id, text);
+  const lines = text.split("\n").length;
+  const nodes = treeable ? countNodes(parsed) : 0;
+  const tool = (label, action, active, title) =>
+    `<button type="button" class="jv-btn ${active ? "on" : ""}" data-action="${action}" data-value="${esc(id)}" title="${esc(title || label)}">${label}</button>`;
+  return `<div class="jsonview" data-json-id="${esc(id)}">
+    <div class="jv-bar">
+      <div class="jv-modes">${treeable ? tool("Tree", "json-tree", mode === "tree", "Collapsible tree") + tool("Raw", "json-raw", mode === "raw", "Highlighted source") : `<span class="jv-static">${esc(lang)}</span>`}</div>
+      ${treeable && mode === "tree" ? `<div class="jv-modes">${tool(icon("down") + " Expand", "json-expand", false, "Expand every node")}${tool(icon("chevron") + " Collapse", "json-collapse", false, "Collapse to the top level")}</div>` : ""}
+      ${mode === "raw" ? `<div class="jv-modes">${tool("Wrap", "json-wrap", view.wrap, "Toggle line wrapping")}</div>` : ""}
+      <div class="jv-filter">${icon("search")}<input data-json-filter="${esc(id)}" placeholder="Filter keys & values…" aria-label="Filter JSON" spellcheck="false"></div>
+      <span class="jv-meta">${treeable ? `${nodes.toLocaleString()} nodes · ` : ""}${lines.toLocaleString()} lines · ${bytesLabel(new TextEncoder().encode(text).length)}</span>
+      <div class="jv-modes">${tool(icon("copy"), "json-copy", false, "Copy to clipboard")}${tool(icon("down"), "json-download", false, "Download")}</div>
+    </div>
+    <div class="jv-body ${mode}">${
+      mode === "tree"
+        ? jsonTree(parsed, {
+            collapsed: state.jsonCollapsed[id] || [],
+            openDepth: options.openDepth ?? 2,
+            root: options.root || "",
+          })
+        : codeBlock(text, lang, { lineNumbers: !view.wrap, wrap: view.wrap })
+    }</div>
+    <div class="jv-empty" hidden>No node matches this filter.</div>
+  </div>`;
+}
+
+/** Hide tree nodes that do not match `term`, keeping ancestors visible. */
+function filterJsonTree(host, term) {
+  const needle = term.trim().toLowerCase();
+  const nodes = [...host.querySelectorAll(".j-row, .j-node")];
+  const empty = host.querySelector(".jv-empty");
+  if (!needle) {
+    nodes.forEach((n) => (n.hidden = false));
+    if (empty) empty.hidden = true;
+    return;
+  }
+  nodes.forEach((n) => (n.hidden = true));
+  const matches = nodes.filter(
+    (n) =>
+      (n.dataset.text || "").includes(needle) ||
+      (n.dataset.path || "").toLowerCase().includes(needle) ||
+      (n.classList.contains("j-row") &&
+        n.textContent.toLowerCase().includes(needle)),
+  );
+  for (const match of matches) {
+    match.hidden = false;
+    match
+      .querySelectorAll?.(".j-row, .j-node")
+      .forEach((c) => (c.hidden = false));
+    let parent = match.parentElement?.closest(".j-node");
+    while (parent) {
+      parent.hidden = false;
+      parent.open = true;
+      parent = parent.parentElement?.closest(".j-node");
+    }
+  }
+  if (empty) empty.hidden = matches.length > 0;
+}
+
+/** Textarea with a highlighted layer behind it and a line-number gutter. */
+function codeEditor(name, value, lang, options = {}) {
+  const { rows = 10, id = "editor-" + name, label = "" } = options;
+  const lines = String(value ?? "").split("\n").length;
+  return `${label ? `<div class="section-label">${esc(label)}</div>` : ""}<div class="editor" data-editor="${esc(id)}" data-lang="${esc(lang)}" style="--rows:${rows}">
+    <div class="editor-gutter" aria-hidden="true">${Array.from({ length: lines }, (_, i) => i + 1).join("\n")}</div>
+    <div class="editor-stack">
+      <pre class="editor-view" aria-hidden="true"><code>${highlight(String(value ?? ""), lang)}</code></pre>
+      <textarea class="editor-input" name="${esc(name)}" id="${esc(id)}" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="${esc(label || name)}">${esc(value)}</textarea>
+    </div>
+  </div>`;
+}
+
 function clearPayload() {
   if (state.pdf) URL.revokeObjectURL(state.pdf);
   state.pdf = null;
@@ -235,6 +394,7 @@ const request = (path, opts = {}) =>
       state.logs.unshift(log);
       state.logs = state.logs.slice(0, 60);
       state.logIndex = 0;
+      state.lastLatency = log.ms;
     },
   });
 async function search(next) {
@@ -252,8 +412,239 @@ async function search(next) {
   state.searchBundle = bundle;
   selectDoc(result.documents[0]?.id);
 }
+
+/* ------------------------------------------------------------------ *
+ * Command palette & shortcut help
+ * ------------------------------------------------------------------ */
+
+/** Everything the palette can run, grouped for display. */
+function commands() {
+  const list = Object.entries(pages).map(([id, [label, hint]]) => ({
+    group: "Navigate",
+    label,
+    hint,
+    action: id,
+  }));
+  list.push(
+    {
+      group: "Action",
+      label: "Run document search",
+      hint: "ITI-67 discovery on the current criteria",
+      action: "run-search",
+    },
+    {
+      group: "Action",
+      label: "Retrieve selected document",
+      hint: "$retrieve-document as a FHIR Bundle",
+      action: "retrieve",
+    },
+    {
+      group: "Action",
+      label: "Retrieve selected document as PDF",
+      hint: "Accept: application/pdf",
+      action: "pdf",
+    },
+    {
+      group: "Action",
+      label: "Next result page",
+      hint: "Replay the opaque _continuation token",
+      action: "next",
+    },
+    {
+      group: "Action",
+      label: "Fetch responder capabilities",
+      hint: "GET /metadata",
+      action: "capabilities",
+    },
+    {
+      group: "Action",
+      label: "Import a FHIR resource",
+      hint: "DocumentReference, searchset, or document Bundle",
+      action: "import",
+    },
+    {
+      group: "Action",
+      label: "Compare the two pinned documents",
+      hint: "Structural and line diff",
+      action: "compare-open",
+    },
+    {
+      group: "Console",
+      label: "Console preset · ITI-67 search",
+      action: "preset",
+      value: "search",
+    },
+    {
+      group: "Console",
+      label: "Console preset · ITI-68 retrieve",
+      action: "preset",
+      value: "retrieve",
+    },
+    {
+      group: "Console",
+      label: "Console preset · capabilities",
+      action: "preset",
+      value: "metadata",
+    },
+    {
+      group: "Console",
+      label: "Console preset · 410 Gone",
+      action: "preset",
+      value: "withdrawn",
+    },
+    {
+      group: "Console",
+      label: "Console preset · 404 Not found",
+      action: "preset",
+      value: "missing",
+    },
+    {
+      group: "Console",
+      label: "Export session traffic as HAR",
+      hint: "Open in browser devtools or Postman",
+      action: "export-har",
+    },
+    { group: "Console", label: "Clear session traffic", action: "clear-logs" },
+    {
+      group: "Theme",
+      label: "Use the dark theme",
+      action: "theme-set",
+      value: "dark",
+    },
+    {
+      group: "Theme",
+      label: "Use the light theme",
+      action: "theme-set",
+      value: "light",
+    },
+    {
+      group: "Theme",
+      label: "Follow the system theme",
+      action: "theme-set",
+      value: "system",
+    },
+    {
+      group: "Session",
+      label: "Generate a P-256 signing key",
+      action: "generate-key",
+    },
+    {
+      group: "Session",
+      label: "Clear session credentials",
+      action: "clear-auth",
+    },
+    { group: "Session", label: "Export settings", action: "export-settings" },
+    { group: "Session", label: "Keyboard shortcuts", action: "shortcuts" },
+    { group: "Session", label: "Reset the workspace", action: "reset" },
+  );
+  for (const [file, label] of guides)
+    list.push({
+      group: "Guide",
+      label,
+      hint: file,
+      action: "guide-file",
+      value: file,
+    });
+  for (const d of state.documents)
+    list.push({
+      group: "Document",
+      label: title(d),
+      hint: `${d.id} · ${date(d.date)}`,
+      action: "open-document",
+      id: d.id,
+    });
+  return list;
+}
+
+/** Subsequence match with a light bias towards prefix and word starts. */
+function score(label, query) {
+  if (!query) return 1;
+  const haystack = label.toLowerCase();
+  const needle = query.toLowerCase();
+  if (haystack.includes(needle)) return 1000 - haystack.indexOf(needle);
+  let index = -1,
+    points = 0;
+  for (const char of needle) {
+    index = haystack.indexOf(char, index + 1);
+    if (index === -1) return 0;
+    points += index === 0 || haystack[index - 1] === " " ? 3 : 1;
+  }
+  return points;
+}
+
+let paletteMatches = [];
+function paletteItems(query) {
+  const ranked = commands()
+    .map((c) => ({ ...c, score: score(`${c.label} ${c.hint || ""}`, query) }))
+    .filter((c) => c.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 40);
+  // Keep each group together, ordered by its best-scoring member.
+  const order = [...new Set(ranked.map((c) => c.group))];
+  paletteMatches = ranked.sort(
+    (a, b) =>
+      order.indexOf(a.group) - order.indexOf(b.group) || b.score - a.score,
+  );
+  if (state.palette.index >= paletteMatches.length) state.palette.index = 0;
+  if (!paletteMatches.length)
+    return '<div class="palette-empty">Nothing matches that.</div>';
+  let group = "";
+  return paletteMatches
+    .map((c, i) => {
+      const heading =
+        c.group !== group
+          ? `<div class="palette-group">${esc((group = c.group))}</div>`
+          : "";
+      return `${heading}<button type="button" class="palette-item ${i === state.palette.index ? "active" : ""}" data-action="palette-run" data-value="${i}"><span class="palette-label">${esc(c.label)}</span>${c.hint ? `<span class="palette-hint">${esc(c.hint)}</span>` : ""}</button>`;
+    })
+    .join("");
+}
+
+function paletteOverlay() {
+  if (!state.palette.open) return "";
+  return `<div class="overlay" data-action="close-overlay"><div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" data-stop><div class="palette-input">${icon("search")}<input id="palette-input" placeholder="Jump to a page, run a transaction, open a guide…" aria-label="Command palette search" autocomplete="off" spellcheck="false" value="${esc(state.palette.query)}"><kbd>esc</kbd></div><div class="palette-list" id="palette-list">${paletteItems(state.palette.query)}</div><div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> run</span><span><kbd>?</kbd> shortcuts</span></div></div></div>`;
+}
+
+const shortcuts = [
+  ["Ctrl / ⌘ K", "Open the command palette"],
+  ["/", "Filter the returned documents"],
+  ["?", "This shortcut list"],
+  ["g then d", "Documents"],
+  ["g then c", "FHIR console"],
+  ["g then i", "Implementation guide"],
+  ["j / k", "Select the next / previous document"],
+  ["Enter", "Retrieve the selected document"],
+  ["Ctrl / ⌘ ↵", "Send the console request"],
+  ["Ctrl / ⌘ S", "Format the console request body"],
+  ["t", "Cycle dark, light, and system themes"],
+  ["Esc", "Close the palette or this overlay"],
+];
+
+function shortcutsOverlay() {
+  if (state.overlay !== "shortcuts") return "";
+  return `<div class="overlay" data-action="close-overlay"><div class="palette shortcut-card" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" data-stop><div class="panel-heading"><h2>${icon("keyboard")} Keyboard shortcuts</h2>${btn(icon("close"), "close-overlay", "icon-btn", 'aria-label="Close"')}</div><dl class="shortcut-grid">${shortcuts
+    .map(
+      ([keys, what]) =>
+        `<div><dt>${keys
+          .split(" ")
+          .map((k) =>
+            ["then", "/"].includes(k)
+              ? `<span>${esc(k)}</span>`
+              : `<kbd>${esc(k)}</kbd>`,
+          )
+          .join(" ")}</dt><dd>${esc(what)}</dd></div>`,
+    )
+    .join(
+      "",
+    )}</dl><p class="muted">Shortcuts are ignored while you are typing in a field.</p></div></div>`;
+}
+
 function render() {
-  document.documentElement.dataset.theme = state.settings.theme;
+  const theme = effectiveTheme();
+  document.documentElement.dataset.theme = theme;
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", theme === "dark" ? "#0b1412" : "#102b29");
   document.title = `${pages[state.page][0]} · Interhub`;
   $("#app").innerHTML =
     `<aside class="sidebar"><a class="brand" href="#documents"><span class="brandmark">${icon("grid")}</span><span>interhub<span class="brand-sub">BELGIAN eHEALTH</span></span></a><div class="workspace-label">WORKSPACE</div><nav aria-label="Main navigation">${[
@@ -279,7 +670,7 @@ function render() {
       .map(([id, i, t]) => nav(id, i, t))
       .join(
         "",
-      )}</nav><div class="sidebar-bottom"><div class="network-tile"><span class="status-dot"></span><b>${state.settings.mode === "demo" ? "Offline demo" : "Live connection"}</b><p>${state.settings.mode === "demo" ? "Belgian IG sample fixtures" : esc(new URL(state.settings.base).host)}</p>${badge("FHIR R4", "dark-badge")}${badge("MHD", "dark-badge")}</div><div class="user"><span class="avatar">DE</span><div><b>Developer workspace</b><small>Local session · ${state.auth.token ? "Token loaded" : "No token"}</small></div>${btn(icon("sun"), "theme", "icon-btn", 'aria-label="Toggle color theme"')}</div></div></aside><div class="shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon("chevron")} <b>${pages[state.page][0]}</b></div><div class="top-actions">${badge("IG 0.2.0", "neutral")}<span class="env"><span class="status-dot"></span>${state.settings.mode === "demo" ? "Demo environment" : "Live environment"}</span>${btn(icon("settings"), "settings", "icon-btn", 'aria-label="Connection settings"')}</div></header><main id="main" tabindex="-1"><div class="page-head"><div><div class="eyebrow">BELGIAN FEDERATED HEALTH NETWORK</div><h1>${pages[state.page][0]}</h1><p>${pages[state.page][1]}</p></div><div class="head-actions">${state.page === "documents" ? btn(icon("upload") + " Import FHIR", "import") + btn(icon("globe") + " Connection", "settings", "primary") : badge(state.settings.mode === "demo" ? "SYNTHETIC DATA" : "LIVE DATA", state.settings.mode === "demo" ? "neutral" : "warning")}</div></div>${state.error ? `<div class="notice error" role="alert">${icon("alert")}<span>${esc(state.error)}</span>${btn(icon("close"), "dismiss-error", "icon-btn", 'aria-label="Dismiss error"')}</div>` : ""}${state.busy ? '<div class="loading-line" role="status" aria-label="Working"></div>' : ""}${{
+      )}</nav><div class="sidebar-bottom"><div class="network-tile"><span class="status-dot"></span><b>${state.settings.mode === "demo" ? "Offline demo" : "Live connection"}</b><p>${state.settings.mode === "demo" ? "Belgian IG sample fixtures" : esc(new URL(state.settings.base).host)}</p>${badge("FHIR R4", "dark-badge")}${badge("MHD", "dark-badge")}</div><div class="user"><span class="avatar">DE</span><div><b>Developer workspace</b><small>Local session · ${state.auth.token ? "Token loaded" : "No token"}</small></div></div></div></aside><div class="shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon("chevron")} <b>${pages[state.page][0]}</b></div><div class="top-actions">${btn(`${icon("search")}<span>Search or jump to…</span><kbd aria-hidden="true">${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl"} K</kbd>`, "palette", "palette-trigger", 'aria-label="Search or jump to"')}${badge("IG 0.2.0", "neutral")}${btn(icon(state.settings.theme === "system" ? "globe" : state.settings.theme === "dark" ? "moon" : "sun"), "theme", "icon-btn", `aria-label="Colour theme: ${state.settings.theme}. Click to change." title="Theme: ${state.settings.theme}"`)}${btn(icon("keyboard"), "shortcuts", "icon-btn", 'aria-label="Keyboard shortcuts" title="Keyboard shortcuts"')}<span class="env"><span class="status-dot"></span>${state.settings.mode === "demo" ? "Demo environment" : "Live environment"}</span>${btn(icon("settings"), "settings", "icon-btn", 'aria-label="Connection settings"')}</div></header><main id="main" tabindex="-1"><div class="page-head"><div><div class="eyebrow">BELGIAN FEDERATED HEALTH NETWORK</div><h1>${pages[state.page][0]}</h1><p>${pages[state.page][1]}</p></div><div class="head-actions">${state.page === "documents" ? btn(icon("upload") + " Import FHIR", "import") + btn(icon("globe") + " Connection", "settings", "primary") : badge(state.settings.mode === "demo" ? "SYNTHETIC DATA" : "LIVE DATA", state.settings.mode === "demo" ? "neutral" : "warning")}</div></div>${state.error ? `<div class="notice error" role="alert">${icon("alert")}<span>${esc(state.error)}</span>${btn(icon("close"), "dismiss-error", "icon-btn", 'aria-label="Dismiss error"')}</div>` : ""}${state.busy ? '<div class="loading-line" role="status" aria-label="Working"></div>' : ""}${{
       documents: documentsPage,
       timeline: timelinePage,
       console: consolePage,
@@ -294,7 +685,7 @@ function render() {
       "code-curl": () => codeCurlPage(state),
     }[
       state.page
-    ]()}</main><footer><span><span class="status-dot"></span> ${state.settings.mode === "demo" ? "Fixture transport · no backend required" : "Live transport · " + esc(state.settings.transport)}</span><span>Belgian Interhub <span class="footer-sep">/</span> IHE MHD <span class="footer-sep">/</span> HL7 FHIR R4</span></footer></div><input type="file" id="import-file" accept="application/json,.json" hidden><input type="file" id="config-file" accept="application/json,.json" hidden>`;
+    ]()}</main><footer><span><span class="status-dot"></span> ${state.settings.mode === "demo" ? "Fixture transport · no backend required" : "Live transport · " + esc(state.settings.transport)}${state.lastLatency != null ? ` <span class="footer-sep">/</span> last response ${state.lastLatency} ms` : ""}</span><span>Belgian Interhub <span class="footer-sep">/</span> IHE MHD <span class="footer-sep">/</span> HL7 FHIR R4</span></footer></div><input type="file" id="import-file" accept="application/json,.json" hidden><input type="file" id="config-file" accept="application/json,.json" hidden>${paletteOverlay()}${shortcutsOverlay()}`;
   wireForms();
 }
 function nav(id, i, t) {
@@ -350,68 +741,210 @@ function documentsPage() {
       ["date", "Oldest first"],
     ],
     state.query._sort,
-  )}${field("Results per page", "_count", state.query._count, "number", 'min="1" max="100"')}</div></details></form></section>${state.issues.length ? `<div class="notice warning">${icon("alert")}<div><b>Some sources could not be reached</b><p>These results are incomplete. Available documents remain accessible.</p>${state.issues.map((i) => `<small>${esc(i.details?.coding?.map((c) => c.code).join(", "))} ${esc(i.diagnostics || i.details?.text || i.code)}</small>`).join("")}</div></div>` : ""}<div class="documents-layout"><section class="document-list panel"><div class="panel-heading"><h2>Documents <span class="count">${count}</span></h2><div class="segmented">${btn(icon("file"), "list-view", state.view === "list" ? "selected" : "", 'aria-label="List view"')}${btn(icon("clock"), "timeline-view", state.view === "timeline" ? "selected" : "", 'aria-label="Timeline view"')}</div></div><div class="list-controls"><div class="filter-search">${icon("search")}<input id="local-filter" aria-label="Filter returned documents" placeholder="Filter these documents…" value="${esc(state.localFilter)}"></div><div class="chips">${[
-    ["", "All documents"],
-    ["labresult", "Laboratory"],
-    ["telemonitoring", "Telemonitoring"],
-    ["minimal", "Minimal"],
-  ]
-    .map(([k, v]) =>
-      btn(
-        v,
-        "category",
-        state.category === k ? "chip active" : "chip",
-        `data-value="${k}"`,
-      ),
-    )
-    .join(
-      "",
-    )}</div></div><div id="document-rows">${documentRows()}</div><div class="list-footer"><span>${count} on this page ${state.searchBundle?.total != null ? "· " + state.searchBundle.total + " total matches" : ""}</span>${state.searchBundle?.link?.some((l) => l.relation === "next") ? btn("Next page " + icon("arrow"), "next") : badge("POST · ITI-67", "neutral")}</div></section><section class="detail-panel panel">${detailPanel()}</section></div>`;
+  )}${field("Results per page", "_count", state.query._count, "number", 'min="1" max="100"')}</div></details></form></section>${state.issues.length ? `<div class="notice warning">${icon("alert")}<div><b>Some sources could not be reached</b><p>These results are incomplete. Available documents remain accessible.</p>${state.issues.map((i) => `<small>${esc(i.details?.coding?.map((c) => c.code).join(", "))} ${esc(i.diagnostics || i.details?.text || i.code)}</small>`).join("")}</div></div>` : ""}<div class="documents-layout"><section class="document-list panel"><div class="panel-heading"><h2>Documents <span class="count">${count}</span></h2><div class="segmented">${btn(icon("file"), "list-view", state.view === "list" ? "selected" : "", 'aria-label="List view"')}${btn(icon("clock"), "timeline-view", state.view === "timeline" ? "selected" : "", 'aria-label="Timeline view"')}</div></div><div class="list-controls"><div class="filter-search">${icon("search")}<input id="local-filter" aria-label="Filter returned documents" placeholder="Filter these documents…" value="${esc(state.localFilter)}"></div>${facetChips()}</div><div class="list-controls arrange">${miniSelect(
+    "Sort",
+    "sort",
+    [
+      ["-date", "Newest first"],
+      ["date", "Oldest first"],
+      ["title", "Title A–Z"],
+      ["type", "Clinical type"],
+      ["status", "Status"],
+    ],
+    state.sort,
+  )}${miniSelect(
+    "Group",
+    "group",
+    [
+      ["none", "No grouping"],
+      ["category", "Category"],
+      ["home", "Home community"],
+      ["custodian", "Custodian"],
+      ["status", "Status"],
+      ["year", "Year"],
+    ],
+    state.group,
+  )}${state.compare.length ? `<span class="compare-pins">${icon("diff")} ${state.compare.length}/2 pinned ${btn("Compare", "compare-open", "chip active", state.compare.length === 2 ? "" : "disabled")}${btn(icon("close"), "compare-clear", "icon-btn", 'aria-label="Clear pinned documents"')}</span>` : `<span class="muted small">Pin two documents to diff them</span>`}</div><div id="document-rows">${documentRows()}</div><div class="list-footer"><span>${count} on this page ${state.searchBundle?.total != null ? "· " + state.searchBundle.total + " total matches" : ""}</span>${state.searchBundle?.link?.some((l) => l.relation === "next") ? btn("Next page " + icon("arrow"), "next") : badge("POST · ITI-67", "neutral")}</div></section><section class="detail-panel panel">${detailPanel()}</section></div>`;
 }
 function stat(i, label, note, sub, cls) {
   return `<div class="stat"><div class="stat-top"><span>${label}</span><span class="stat-icon ${cls}">${icon(i)}</span></div><strong>${note}</strong><small>${sub}</small></div>`;
 }
-function documentRows() {
+/** Small inline label + select used by the list arrangement controls. */
+function miniSelect(label, action, options, current) {
+  return `<label class="mini-select"><span>${esc(label)}</span><select data-select="${action}">${options
+    .map(
+      ([v, t]) =>
+        `<option value="${esc(v)}" ${v === current ? "selected" : ""}>${esc(t)}</option>`,
+    )
+    .join("")}</select></label>`;
+}
+
+/** Display names for the national CD-TRANSACTION document categories. */
+const CATEGORY_LABELS = {
+  sumehr: "Summary (Sumehr)",
+  labresult: "Laboratory",
+  discharge: "Discharge report",
+  telemonitoring: "Telemonitoring",
+  note: "Clinical note",
+  referral: "Referral letter",
+  prescription: "Prescription",
+  radiology: "Radiology",
+  vaccination: "Vaccination",
+  dietetics: "Dietetics",
+  paramedical: "Paramedical",
+  nursing: "Nursing report",
+};
+
+/** Category chips with live counts, derived from the returned documents. */
+function facetChips() {
+  const counts = new Map();
+  for (const d of state.documents)
+    for (const category of d.category || [])
+      for (const coding of category.coding || [])
+        if (coding.code)
+          counts.set(coding.code, (counts.get(coding.code) || 0) + 1);
+  const minimal = state.documents.filter(isMinimal).length;
+  const facets = [["", "All documents", state.documents.length]];
+  for (const [code, n] of [...counts].sort((a, b) => b[1] - a[1]))
+    facets.push([code, CATEGORY_LABELS[code] || code, n]);
+  if (minimal) facets.push(["minimal", "Minimal profile", minimal]);
+  return `<div class="chips">${facets
+    .map(([k, label, n]) =>
+      btn(
+        `${esc(label)}<span class="chip-count">${n}</span>`,
+        "category",
+        state.category === k ? "chip active" : "chip",
+        `data-value="${esc(k)}"`,
+      ),
+    )
+    .join("")}</div>`;
+}
+
+const sortKey = (d, key) =>
+  key === "title"
+    ? title(d)
+    : key === "status"
+      ? d.status || ""
+      : key === "type"
+        ? codeText(d.type)
+        : d.date || "";
+
+/** Documents after the category facet, the text filter, and the sort order. */
+function visibleDocuments() {
+  const term = state.localFilter.toLowerCase();
   const list = state.documents.filter(
     (d) =>
       (!state.category ||
         (state.category === "minimal"
           ? isMinimal(d)
           : d.category?.some((c) =>
-              c.coding?.some((c) => c.code === state.category),
+              c.coding?.some((coding) => coding.code === state.category),
             ))) &&
-      pretty(d).toLowerCase().includes(state.localFilter.toLowerCase()),
+      (!term || pretty(d).toLowerCase().includes(term)),
   );
+  const descending = state.sort.startsWith("-");
+  const key = descending ? state.sort.slice(1) : state.sort;
+  return list.sort(
+    (a, b) =>
+      (descending ? -1 : 1) *
+      String(sortKey(a, key)).localeCompare(String(sortKey(b, key)), "en", {
+        numeric: true,
+      }),
+  );
+}
+
+function groupLabel(d) {
+  switch (state.group) {
+    case "category":
+      return (
+        d.category?.map(codeText).filter(Boolean).join(", ") || "Uncategorised"
+      );
+    case "home": {
+      const home = value(extension(d, "home-community-id"));
+      return (
+        (typeof home === "object" ? home?.value || home?.system : home) ||
+        "No home community"
+      );
+    }
+    case "custodian":
+      return referenceText(d.custodian, d) || "Unknown custodian";
+    case "status":
+      return d.status || "unknown";
+    case "year":
+      return (d.date || "").slice(0, 4) || "Undated";
+    default:
+      return "";
+  }
+}
+
+function documentRow(d) {
+  const tele = d.category?.some((c) =>
+    c.coding?.some((x) => x.code === "telemonitoring"),
+  );
+  const active = d.id === state.selected?.id;
+  const pinned = state.compare.includes(d.id);
+  return `<div class="doc-row-wrap ${pinned ? "pinned" : ""}"><button class="doc-row ${active ? "selected" : ""} ${state.view === "timeline" ? "timeline-row" : ""}" data-action="select-document" data-id="${esc(d.id)}"><span class="doc-icon ${tele ? "purple" : "mint"}">${icon(tele ? "heart" : isMinimal(d) ? "file" : "lab")}</span><span class="doc-body"><span class="doc-title">${esc(title(d))}</span><span class="doc-description">${esc(codeText(d.type))}</span><span class="doc-meta">${esc(referenceText(d.custodian, d))} <span>·</span> ${date(d.date)}</span><span class="doc-badges">${badge(d.status)}${badge(isMinimal(d) ? "Minimal" : "Comprehensive", "neutral")}${badge(d.content?.[0]?.attachment?.language || "No language", "neutral")}${d.relatesTo?.length ? badge(d.relatesTo.map((r) => r.code).join(", "), "warning") : ""}</span></span>${icon("chevron")}</button><button type="button" class="doc-pin ${pinned ? "on" : ""}" data-action="compare-toggle" data-id="${esc(d.id)}" title="${pinned ? "Unpin from compare" : "Pin for compare"}" aria-label="${pinned ? "Unpin from compare" : "Pin for compare"}" aria-pressed="${pinned}">${icon("diff")}</button></div>`;
+}
+
+function documentRows() {
+  const list = visibleDocuments();
   if (!list.length)
     return `<div class="empty">${icon("search")}<h3>No documents to show</h3><p>${state.documents.length ? "Try another filter." : "Enter a patient SSIN and run a search."}</p></div>`;
-  return list
-    .map((d) => {
-      const tele = d.category?.some((c) =>
-          c.coding?.some((x) => x.code === "telemonitoring"),
-        ),
-        active = d.id === state.selected?.id;
-      return `<button class="doc-row ${active ? "selected" : ""} ${state.view === "timeline" ? "timeline-row" : ""}" data-action="select-document" data-id="${esc(d.id)}"><span class="doc-icon ${tele ? "purple" : "mint"}">${icon(tele ? "heart" : isMinimal(d) ? "file" : "lab")}</span><span class="doc-body"><span class="doc-title">${esc(title(d))}</span><span class="doc-description">${esc(codeText(d.type))}</span><span class="doc-meta">${esc(referenceText(d.custodian, d))} <span>·</span> ${date(d.date)}</span><span class="doc-badges">${badge(d.status)}${badge(isMinimal(d) ? "Minimal" : "Comprehensive", "neutral")}${badge(d.content?.[0]?.attachment?.language || "No language", "neutral")}</span></span>${icon("chevron")}</button>`;
-    })
+  if (state.group === "none") return list.map(documentRow).join("");
+  const groups = new Map();
+  for (const d of list) {
+    const label = groupLabel(d);
+    groups.set(label, [...(groups.get(label) || []), d]);
+  }
+  return [...groups]
+    .map(
+      ([label, docs]) =>
+        `<div class="doc-group"><div class="doc-group-head">${icon("layers")}<b>${esc(label)}</b><span class="count">${docs.length}</span></div>${docs.map(documentRow).join("")}</div>`,
+    )
     .join("");
 }
 function detailPanel() {
   const d = state.selected;
   if (!d)
     return `<div class="empty">${icon("file")}<h3>A closer look</h3><p>Select a document to inspect its Belgian metadata and retrieve the clinical payload.</p></div>`;
-  return `<div class="detail-heading"><span class="overline">DOCUMENT INSPECTOR</span>${btn(icon("down"), "export-document", "icon-btn", 'aria-label="Export selected document JSON"')}</div><div class="detail-title"><h2>${esc(title(d))}</h2><p>${esc(d.id)}</p>${badge(isMinimal(d) ? "MHD Minimal" : "MHD Comprehensive")}${badge("FHIR R4", "neutral")}</div><div class="tabs" role="tablist">${[
+  const tabs = [
     ["overview", "Overview"],
     ["payload", "Clinical"],
     ["metadata", "Metadata"],
     ["json", "JSON"],
     ["validation", "Checks"],
-  ]
+  ];
+  if (state.compare.length === 2) tabs.push(["compare", "Compare"]);
+  const tab = tabs.some(([k]) => k === state.detailTab)
+    ? state.detailTab
+    : "overview";
+  const views = {
+    overview,
+    metadata,
+    payload: clinical,
+    json: () =>
+      `${state.payload ? `<div class="section-label">RETRIEVED PAYLOAD</div>${json(state.payload, "payload-" + d.id)}<div class="section-label">DOCUMENT REFERENCE</div>` : ""}${json(d, "docref-" + d.id)}`,
+    validation: () => checksView(state.payload || d),
+    compare: comparePanel,
+  };
+  return `<div class="detail-heading"><span class="overline">DOCUMENT INSPECTOR</span><div>${btn(icon("code"), "console-document", "icon-btn", 'aria-label="Open this retrieval in the FHIR console" title="Open in the FHIR console"')}${btn(icon("diff"), "compare-toggle", `icon-btn ${state.compare.includes(d.id) ? "on" : ""}`, `data-id="${esc(d.id)}" aria-label="Pin for compare" title="Pin for compare"`)}${btn(icon("down"), "export-document", "icon-btn", 'aria-label="Export selected document JSON"')}</div></div><div class="detail-title"><h2>${esc(title(d))}</h2><p>${esc(d.id)}</p>${badge(isMinimal(d) ? "MHD Minimal" : "MHD Comprehensive")}${badge("FHIR R4", "neutral")}</div><div class="tabs" role="tablist">${tabs
     .map(
       ([k, v]) =>
-        `<button role="tab" aria-selected="${state.detailTab === k}" data-action="detail-tab" data-value="${k}" class="${state.detailTab === k ? "active" : ""}">${v}</button>`,
+        `<button role="tab" aria-selected="${tab === k}" data-action="detail-tab" data-value="${k}" class="${tab === k ? "active" : ""}">${v}</button>`,
     )
     .join(
       "",
-    )}</div><div class="detail-content">${{ overview: overview, metadata: metadata, payload: clinical, json: () => `${state.payload ? '<div class="section-label">RETRIEVED PAYLOAD</div>' + json(state.payload) + '<div class="section-label">DOCUMENT REFERENCE</div>' : ""}${json(d)}`, validation: () => checksView(state.payload || d) }[state.detailTab](d)}</div><div class="retrieve-bar">${d._viewerImportedBundle ? '<span class="muted">Imported document Bundle · use the export button to save</span>' : btn(icon("down") + " Retrieve FHIR", "retrieve", "primary", state.busy ? "disabled" : "")}${d._viewerImportedBundle ? "" : btn("View PDF", "pdf", "", state.busy ? "disabled" : "")}</div>`;
+    )}</div><div class="detail-content">${views[tab](d)}</div><div class="retrieve-bar">${d._viewerImportedBundle ? '<span class="muted">Imported document Bundle · use the export button to save</span>' : btn(icon("down") + " Retrieve FHIR", "retrieve", "primary", state.busy ? "disabled" : "")}${d._viewerImportedBundle ? "" : btn("View PDF", "pdf", "", state.busy ? "disabled" : "")}</div>`;
+}
+
+/** Side-by-side comparison of the two pinned documents. */
+function comparePanel() {
+  const [left, right] = state.compare.map((id) =>
+    state.documents.find((d) => d.id === id),
+  );
+  if (!left || !right)
+    return `<div class="empty">${icon("diff")}<h3>Pin two documents</h3><p>Use the compare pin on two rows to diff their metadata.</p></div>`;
+  return `<div class="compare-head"><div><span class="overline">LEFT</span><b>${esc(title(left))}</b><small>${esc(left.id)}</small></div>${icon("arrow")}<div><span class="overline">RIGHT</span><b>${esc(title(right))}</b><small>${esc(right.id)}</small></div></div><div class="section-label">STRUCTURAL DIFFERENCES</div>${jsonDiffHtml(left, right)}<div class="section-label">SOURCE DIFF</div>${diffHtml(pretty(left), pretty(right), "json")}`;
 }
 function overview(d) {
   const access = extension(d, "patient-access"),
@@ -420,7 +953,7 @@ function overview(d) {
   return `<div class="section-label">CLINICAL CONTEXT</div><dl class="kv-grid">${kv("Document type", codeText(d.type))}${kv("Category", d.category?.map(codeText).join(", "))}${kv("Created", date(d.content?.[0]?.attachment?.creation))}${kv("Clinical status", d.docStatus || d.status)}${kv("Practice setting", codeText(d.context?.practiceSetting))}${kv("Confidentiality", d.securityLabel?.map(codeText).join(", "))}</dl><div class="section-label">AUTHORING PARTIES</div><div class="parties">${(d.author || []).map((a) => `<div class="party"><span class="party-icon">${icon("file")}</span><div><b>${esc(referenceText(a, d))}</b><small>${esc(value(extension(a, "hcparty-type"))?.display || value(extension(a, "hcparty-type"))?.code || "Author")}</small></div></div>`).join("") || '<p class="muted">Authors are optional in the Minimal profile.</p>'}</div><div class="access-card">${icon("shield")}<div><b>Patient access: ${esc(permission || "not specified")}</b><p>${esc(access?.extension?.map((e) => e.url + ": " + value(e)).join(" · ") || "No patient access extension was supplied.")}</p></div></div>${extension(d, "end-to-end-encryption") ? '<div class="notice warning">Encrypted payload · ETK decryption requires an external recipient integration.</div>' : ""}<div class="section-label">HOME COMMUNITY</div><code class="wrap-code">${esc(typeof home === "object" ? pretty(home) : home || "Not supplied")}</code>${d.relatesTo?.length ? `<div class="section-label">DOCUMENT RELATIONSHIPS</div>${d.relatesTo.map((r) => `<div class="relation">${badge(r.code, "neutral")}<p>${esc(r.target?.display || r.target?.identifier?.value || r.target?.reference)}</p></div>`).join("")}` : ""}`;
 }
 function metadata(d) {
-  return `<div class="section-label">BUSINESS IDENTIFIERS</div><dl>${kv("Master identifier", d.masterIdentifier?.value)}${kv("Identifier system", d.masterIdentifier?.system)}${(d.identifier || []).map((i) => kv(i.system, i.value)).join("")}</dl><div class="section-label">ATTACHMENT & CONTEXT</div>${json({ content: d.content, context: d.context })}<div class="section-label">BELGIAN EXTENSIONS</div>${json(d.extension || [])}<div class="section-label">CONTAINED RESOURCES</div>${(d.contained || []).map((r) => `<details class="resource"><summary>${esc(r.resourceType)} · ${esc(humanName(r))}</summary>${json(r)}</details>`).join("") || '<p class="muted">No contained resources.</p>'}<div class="section-label">ATTESTATION</div>${json({ authenticator: d.authenticator, custodian: d.custodian, relatesTo: d.relatesTo })}`;
+  return `<div class="section-label">BUSINESS IDENTIFIERS</div><dl>${kv("Master identifier", d.masterIdentifier?.value)}${kv("Identifier system", d.masterIdentifier?.system)}${(d.identifier || []).map((i) => kv(i.system, i.value)).join("")}</dl><div class="section-label">ATTACHMENT & CONTEXT</div>${json({ content: d.content, context: d.context }, "meta-content-" + d.id)}<div class="section-label">BELGIAN EXTENSIONS</div>${json(d.extension || [], "meta-ext-" + d.id)}<div class="section-label">CONTAINED RESOURCES</div>${(d.contained || []).map((r) => `<details class="resource"><summary>${esc(r.resourceType)} · ${esc(humanName(r))}</summary>${json(r)}</details>`).join("") || '<p class="muted">No contained resources.</p>'}<div class="section-label">ATTESTATION</div>${json({ authenticator: d.authenticator, custodian: d.custodian, relatesTo: d.relatesTo })}`;
 }
 function narrative(text) {
   const parsed = new DOMParser().parseFromString(text || "", "text/html");
@@ -474,9 +1007,109 @@ function timelinePage() {
     '<div class="empty"><h3>No timeline yet</h3><p>Run a patient document search first.</p></div>'
   }</section>`;
 }
+const STATUS_TEXT = {
+  200: "OK",
+  400: "Bad request · check the parameters",
+  401: "Unauthorized · token missing or rejected",
+  403: "Forbidden",
+  404: "Not found · unknown document",
+  405: "Method not allowed",
+  406: "Not acceptable · no rendering in that format",
+  410: "Gone · the document was withdrawn",
+  422: "Unprocessable entity",
+  500: "Server error",
+};
+
+function trafficRows() {
+  const term = state.logFilter.toLowerCase();
+  const rows = state.logs
+    .map((log, index) => ({ log, index }))
+    .filter(
+      ({ log }) =>
+        !term ||
+        log.url.toLowerCase().includes(term) ||
+        String(log.status).includes(term) ||
+        String(log.body || "")
+          .toLowerCase()
+          .includes(term) ||
+        log.method.toLowerCase().includes(term),
+    );
+  if (!rows.length)
+    return `<div class="empty"><p>${state.logs.length ? "No request matches this filter." : "Send a request to start tracing."}</p></div>`;
+  return rows
+    .map(
+      ({ log, index }) =>
+        `<div class="traffic-wrap"><button class="traffic-row ${index === state.logIndex ? "active" : ""}" data-action="select-log" data-value="${index}"><span class="method m-${esc(log.method.toLowerCase())}">${log.method}</span><span class="traffic-path">${esc(new URL(log.url).pathname)}<small>${new Date(log.time).toLocaleTimeString()} · ${log.ms} ms ${log.demo ? "· Demo" : ""}</small></span>${badge(log.status || "ERR", log.status >= 400 || !log.status ? "warning" : "")}</button><button type="button" class="traffic-replay" data-action="replay" data-value="${index}" title="Load into the request builder" aria-label="Replay request">${icon("play")}</button></div>`,
+    )
+    .join("");
+}
+
+function responseBody(log) {
+  if (!log)
+    return `<div class="empty"><h3>Your responses will appear here</h3><p>Inspect JSON, OperationOutcome issues, HTTP headers, and reproducible snippets in five languages.</p></div>`;
+  const id = `log-${state.logIndex}-${state.logTab}`;
+  switch (state.logTab) {
+    case "headers":
+      return `<div class="table-wrap"><table class="data-table"><thead><tr><th>Response header</th><th>Value</th></tr></thead><tbody>${
+        Object.entries(log.responseHeaders || {})
+          .map(
+            ([k, v]) =>
+              `<tr><td><code>${esc(k)}</code></td><td>${esc(v)}</td></tr>`,
+          )
+          .join("") ||
+        '<tr><td colspan="2">No response headers were exposed.</td></tr>'
+      }</tbody></table></div><div class="section-label">REQUEST HEADERS</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Request header</th><th>Value</th></tr></thead><tbody>${Object.entries(
+        log.headers || {},
+      )
+        .map(
+          ([k, v]) =>
+            `<tr><td><code>${esc(k)}</code></td><td>${esc(v)}</td></tr>`,
+        )
+        .join("")}</tbody></table></div>`;
+    case "request":
+      return `${json({ url: log.url, method: log.method, headers: log.headers }, id)}${log.body ? `<div class="section-label">REQUEST BODY</div>${codeBlock(log.body, detectLanguage(log.body, log.headers?.["Content-Type"]), { lineNumbers: true })}` : ""}`;
+    case "snippet":
+      return `<div class="chips snippet-kinds">${Object.entries(generators)
+        .map(([kind, g]) =>
+          btn(
+            esc(g.label),
+            "snippet-kind",
+            state.snippetKind === kind ? "chip active" : "chip",
+            `data-value="${kind}"`,
+          ),
+        )
+        .join(
+          "",
+        )}${btn(icon("copy") + " Copy", "copy-snippet", "chip")}</div>${codeBlock(
+        snippet(log, state.snippetKind),
+        generators[state.snippetKind]?.lang || "bash",
+        { lineNumbers: true },
+      )}<p class="muted">Authorization, DPoP, and signature headers are redacted before a snippet is produced.</p>`;
+    default: {
+      const payload = log.data instanceof Blob ? log.raw : log.data;
+      return json(payload, id, {
+        contentType: log.responseHeaders?.["content-type"],
+      });
+    }
+  }
+}
+
+/** Decoded view of an x-www-form-urlencoded body, the ITI-67 wire format. */
+function formTable(body) {
+  const pairs = [...new URLSearchParams(body || "")];
+  if (!pairs.length) return "";
+  return `<details class="resource decoded-form" open><summary>Decoded parameters <span class="count">${pairs.length}</span></summary><div class="table-wrap"><table class="data-table"><tbody>${pairs
+    .map(
+      ([k, v]) => `<tr><td><code>${esc(k)}</code></td><td>${esc(v)}</td></tr>`,
+    )
+    .join("")}</tbody></table></div></details>`;
+}
+
 function consolePage() {
   const c = state.console,
     log = state.logs[state.logIndex];
+  const bodyLang = detectLanguage(c.body, c.contentType);
+  const size = log ? new TextEncoder().encode(log.raw || "").length : 0;
   return `<div class="console-layout"><section class="panel request-builder"><div class="panel-heading"><h2>Request builder</h2>${badge(state.settings.mode === "demo" ? "FIXTURE TRANSPORT" : "LIVE TRANSPORT", "neutral")}</div><div class="preset-row">${[
     ["search", "ITI-67 Search"],
     ["retrieve", "ITI-68 Retrieve"],
@@ -493,11 +1126,15 @@ function consolePage() {
       ["GET", "GET"],
     ],
     c.method,
-  )}${field("Path relative to FHIR base", "path", c.path, "text", "required")}<button class="btn primary" ${state.busy ? "disabled" : ""}>${icon("arrow")} Send</button></div><p class="base-hint">${esc(state.settings.base)}</p><div class="form-grid two">${field("Content-Type", "contentType", c.contentType)}${field("Accept", "accept", c.accept)}</div>${area("Request body", "body", c.body, 'rows="8" class="code-input"')}<p class="muted">Authentication and custom connection headers are applied automatically. Responses stay in memory.</p></form></section><section class="panel request-history"><div class="panel-heading"><h2>Session traffic <span class="count">${state.logs.length}</span></h2>${btn("Clear", "clear-logs", "text-btn")}</div><div class="history-list">${state.logs.map((l, i) => `<button class="traffic-row ${i === state.logIndex ? "active" : ""}" data-action="select-log" data-value="${i}"><span class="method">${l.method}</span><span class="traffic-path">${esc(new URL(l.url).pathname)}<small>${new Date(l.time).toLocaleTimeString()} · ${l.ms} ms ${l.demo ? "· Demo" : ""}</small></span>${badge(l.status || "ERR", l.status >= 400 || !l.status ? "warning" : "")}</button>`).join("") || '<div class="empty"><p>Send a request to start tracing.</p></div>'}</div></section></div><section class="panel response-panel"><div class="panel-heading"><h2>HTTP inspector ${log ? badge(log.status || "Network error", log.status >= 400 ? "warning" : "") : ""}</h2><div>${log ? btn(icon("copy") + " Copy cURL", "copy-curl") + btn(icon("down") + " Export trace", "export-trace") : ""}</div></div><div class="tabs">${[
+  )}${field("Path relative to FHIR base", "path", c.path, "text", "required")}<button class="btn primary" ${state.busy ? "disabled" : ""}>${icon("arrow")} Send <kbd aria-hidden="true">⌘↵</kbd></button></div><p class="base-hint">${esc(state.settings.base)}</p><div class="form-grid two">${field("Content-Type", "contentType", c.contentType)}${field("Accept", "accept", c.accept)}</div><div class="editor-toolbar"><span class="section-label">REQUEST BODY</span><span class="editor-lang">${esc(bodyLang)}</span>${btn("Format", "format-body", "chip")}${btn("Minify", "minify-body", "chip")}${btn(icon("copy"), "copy-body", "chip", 'aria-label="Copy request body"')}</div>${codeEditor("body", c.body, bodyLang, { rows: 12, id: "console-body", label: "" })}${bodyLang === "form" ? formTable(c.body) : ""}<p class="muted">Authentication and custom connection headers are applied automatically. Responses stay in memory.</p></form></section><section class="panel request-history"><div class="panel-heading"><h2>Session traffic <span class="count">${state.logs.length}</span></h2><div class="row-actions">${btn(icon("down") + " HAR", "export-har", "text-btn")}${btn("Clear", "clear-logs", "text-btn")}</div></div><div class="filter-search compact">${icon("filter")}<input id="log-filter" aria-label="Filter session traffic" placeholder="Filter by path, method, status…" value="${esc(state.logFilter)}"></div><div class="history-list">${trafficRows()}</div></section></div><section class="panel response-panel"><div class="panel-heading"><h2>HTTP inspector ${log ? badge(log.status || "Network error", log.status >= 400 ? "warning" : "") : ""}</h2><div class="row-actions">${log ? btn(icon("copy") + " Copy " + (generators[state.snippetKind]?.label || "cURL"), "copy-snippet") + btn(icon("down") + " Export trace", "export-trace") : ""}</div></div>${
+    log
+      ? `<div class="response-summary"><span class="rs ${log.status >= 400 || !log.status ? "bad" : "good"}"><b>${log.status || "ERR"}</b> ${esc(STATUS_TEXT[log.status] || "")}</span><span>${log.ms} ms</span><span>${size.toLocaleString()} bytes</span><span>${esc(log.responseHeaders?.["content-type"] || "no content-type")}</span><span>${log.demo ? "Offline fixture" : "Live transport"}</span></div>`
+      : ""
+  }<div class="tabs">${[
     ["response", "Response body"],
     ["request", "Request"],
-    ["headers", "Response headers"],
-    ["curl", "cURL"],
+    ["headers", "Headers"],
+    ["snippet", "Code snippet"],
   ]
     .map(([k, v]) =>
       btn(
@@ -507,10 +1144,9 @@ function consolePage() {
         `data-value="${k}"`,
       ),
     )
-    .join(
-      "",
-    )}<span class="response-timing">${log ? log.ms + " ms · " + new TextEncoder().encode(log.raw || "").length.toLocaleString() + " text bytes" : ""}</span></div>${log ? json(state.logTab === "response" ? (log.data instanceof Blob ? log.raw : log.data) : state.logTab === "headers" ? log.responseHeaders : state.logTab === "curl" ? curlCommand(log) : { url: log.url, method: log.method, headers: log.headers, body: log.body }) : '<div class="empty"><h3>Your responses will appear here</h3><p>Inspect JSON, OperationOutcome issues, HTTP headers, and reproducible cURL commands.</p></div>'}</section>`;
+    .join("")}</div>${responseBody(log)}</section>`;
 }
+
 function authPage() {
   const a = state.auth,
     s = state.settings,
@@ -532,7 +1168,7 @@ function authPage() {
       ["exchange", "STS bridge · SAML2 token exchange"],
     ],
     s.grant,
-  )}${field("Token endpoint URL", "tokenEndpoint", s.tokenEndpoint, "url", 'placeholder="https://authorization.example/token" required')}${field("OAuth client ID", "clientId", s.clientId, "text", "required")}<div class="form-grid two">${field("Scopes", "scope", s.scope)}${field("Audience (optional)", "audience", s.audience)}</div>${field("Client secret (optional; otherwise private_key_jwt)", "clientSecret", a.clientSecret, "password", 'autocomplete="off"')}${area("SAML2 subject token (base64url, exchange route only)", "assertion", a.assertion, 'rows="3" autocomplete="off"')}<button class="btn primary" ${state.busy ? "disabled" : ""}>${icon("key")} Request access token</button><p class="muted">Uses the selected direct/proxy transport, even in demo mode. Configure an allowed proxy origin for your authorization server. DPoP token requests use the current key.</p></form></section></div><section class="panel padded"><div class="panel-heading"><h2>JWT claims inspector</h2>${badge("DECODED · NOT VERIFIED", "warning")}</div>${claims ? `${claims.exp ? `<div class="notice ${claims.exp * 1000 < Date.now() ? "warning" : "subtle"}">Token ${claims.exp * 1000 < Date.now() ? "expired" : "expires"} ${esc(new Date(claims.exp * 1000).toLocaleString())}</div>` : ""}${json(claims)}` : '<p class="muted">Load a JWT to inspect its issuer, audience, lifetime, Belgian requester context, and cnf key binding. Opaque access tokens are also supported.</p>'}</section><div class="notice subtle">${icon("book")}<p>DPoP constrains token use; it does not sign the request body. Use HTTP Message Signatures for body integrity. mTLS certificates, IAM registration, consent, therapeutic links, institutional trust, and ETK decryption are supplied by your hub infrastructure. <a href="https://www.rfc-editor.org/rfc/rfc9449.html" target="_blank" rel="noreferrer">RFC 9449</a> · <a href="https://www.rfc-editor.org/rfc/rfc9421.html" target="_blank" rel="noreferrer">RFC 9421</a></p></div>`;
+  )}${field("Token endpoint URL", "tokenEndpoint", s.tokenEndpoint, "url", 'placeholder="https://authorization.example/token" required')}${field("OAuth client ID", "clientId", s.clientId, "text", "required")}<div class="form-grid two">${field("Scopes", "scope", s.scope)}${field("Audience (optional)", "audience", s.audience)}</div>${field("Client secret (optional; otherwise private_key_jwt)", "clientSecret", a.clientSecret, "password", 'autocomplete="off"')}${area("SAML2 subject token (base64url, exchange route only)", "assertion", a.assertion, 'rows="3" autocomplete="off"')}<button class="btn primary" ${state.busy ? "disabled" : ""}>${icon("key")} Request access token</button><p class="muted">Uses the selected direct/proxy transport, even in demo mode. Configure an allowed proxy origin for your authorization server. DPoP token requests use the current key.</p></form></section></div><section class="panel padded"><div class="panel-heading"><h2>JWT claims inspector</h2>${badge("DECODED · NOT VERIFIED", "warning")}</div>${claims ? `${claims.exp ? `<div class="notice ${claims.exp * 1000 < Date.now() ? "warning" : "subtle"}">Token ${claims.exp * 1000 < Date.now() ? "expired" : "expires"} ${esc(new Date(claims.exp * 1000).toLocaleString())}</div>` : ""}${json(claims, "jwt-claims")}` : '<p class="muted">Load a JWT to inspect its issuer, audience, lifetime, Belgian requester context, and cnf key binding. Opaque access tokens are also supported.</p>'}</section><div class="notice subtle">${icon("book")}<p>DPoP constrains token use; it does not sign the request body. Use HTTP Message Signatures for body integrity. mTLS certificates, IAM registration, consent, therapeutic links, institutional trust, and ETK decryption are supplied by your hub infrastructure. <a href="https://www.rfc-editor.org/rfc/rfc9449.html" target="_blank" rel="noreferrer">RFC 9449</a> · <a href="https://www.rfc-editor.org/rfc/rfc9421.html" target="_blank" rel="noreferrer">RFC 9421</a></p></div>`;
 }
 function conformancePage() {
   const all = state.documents.flatMap(validateResource),
@@ -550,7 +1186,7 @@ function conformancePage() {
           )
           .join(
             "",
-          )}<details class="resource"><summary>Raw CapabilityStatement</summary>${json(cap)}</details>`
+          )}<details class="resource"><summary>Raw CapabilityStatement</summary>${json(cap, "capability")}</details>`
       : '<div class="empty">' +
         icon("network") +
         "<h3>Discover the responder</h3><p>Read advertised interactions, search parameters, and operations.</p></div>"
@@ -626,8 +1262,74 @@ const guides = [
   ["aliases.fsh", "FSH · Aliases"],
 ];
 function guidePage() {
-  return `<div class="guide-layout"><section class="panel guide-nav">${guides.map(([f, t]) => btn(t, "guide-file", state.igFile === f ? "active" : "", `data-value="${f}"`)).join("")}</section><section class="panel guide-reader"><div class="panel-heading"><h2>${esc(guides.find((x) => x[0] === state.igFile)?.[1])}</h2><a class="btn" href="/ig/${esc(state.igFile)}" target="_blank" rel="noreferrer">Open source ${icon("arrow")}</a></div><p class="source-note">Read-only snapshot of the supplied specification · Markdown / FSH source</p><input id="guide-search" placeholder="Find in this source…" aria-label="Find in guide source"><pre id="guide-source" class="guide-source" tabindex="0">${esc(state.igText || "Loading source…")}</pre></section></div>`;
+  const current = guides.find((x) => x[0] === state.igFile);
+  const isFsh = state.igFile.endsWith(".fsh");
+  const mode = isFsh ? "source" : state.guideMode;
+  const doc = mode === "rendered" ? renderMarkdown(state.igText) : null;
+  const groups = [
+    ["SPECIFICATION", guides.filter(([f]) => f.endsWith(".md"))],
+    ["FSH SOURCE", guides.filter(([f]) => f.endsWith(".fsh"))],
+  ];
+  return `<div class="guide-layout"><section class="panel guide-nav">${groups
+    .map(
+      ([label, items]) =>
+        `<div class="workspace-label guide-group">${label}</div>${items
+          .map(([f, t]) =>
+            btn(
+              t,
+              "guide-file",
+              state.igFile === f ? "active" : "",
+              `data-value="${esc(f)}"`,
+            ),
+          )
+          .join("")}`,
+    )
+    .join(
+      "",
+    )}</section><section class="panel guide-reader"><div class="panel-heading"><h2>${esc(current?.[1] || state.igFile)}</h2><div class="row-actions">${
+    isFsh
+      ? ""
+      : `<div class="segmented">${btn("Rendered", "guide-mode", state.guideMode === "rendered" ? "selected" : "", 'data-value="rendered"')}${btn("Source", "guide-mode", state.guideMode === "source" ? "selected" : "", 'data-value="source"')}</div>`
+  }<a class="btn" href="/ig/${esc(state.igFile)}" target="_blank" rel="noreferrer">Open source ${icon("arrow")}</a></div></div><p class="source-note">Read-only snapshot of the supplied specification · ${esc(state.igFile)}</p><div class="filter-search compact"><input id="guide-search" placeholder="Find in this page…" aria-label="Find in guide source" value="${esc(state.guideQuery)}"><span id="guide-hits" class="muted small"></span></div>${
+    state.igText
+      ? mode === "rendered"
+        ? `${tableOfContents(doc.headings)}<article id="guide-body" class="markdown">${doc.html}</article>`
+        : `<div id="guide-body">${codeBlock(state.igText, isFsh ? "fsh" : "markdown", { lineNumbers: true })}</div>`
+      : `<div class="empty" id="guide-body">${icon("book")}<h3>Loading source…</h3></div>`
+  }</section></div>`;
 }
+
+/** Wrap every occurrence of `term` in <mark>, walking text nodes only. */
+function markMatches(container, term) {
+  container.querySelectorAll("mark").forEach((mark) => {
+    mark.replaceWith(document.createTextNode(mark.textContent));
+  });
+  container.normalize();
+  if (!term || term.length < 2) return 0;
+  const needle = term.toLowerCase();
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode())
+    if (node.nodeValue.toLowerCase().includes(needle)) targets.push(node);
+  let hits = 0;
+  for (const node of targets) {
+    const parts = node.nodeValue.split(
+      new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"),
+    );
+    const fragment = document.createDocumentFragment();
+    for (const part of parts) {
+      if (part.toLowerCase() === needle) {
+        const mark = document.createElement("mark");
+        mark.textContent = part;
+        fragment.append(mark);
+        hits += 1;
+      } else if (part) fragment.append(document.createTextNode(part));
+    }
+    node.replaceWith(fragment);
+  }
+  return hits;
+}
+
 function settingsPage() {
   const s = state.settings;
   return `<div class="two-column"><section class="panel padded"><div class="section-label">CONNECTION</div><h2>Your FHIR endpoint</h2><form id="settings-form">${select(
@@ -650,8 +1352,9 @@ function settingsPage() {
     "Appearance",
     "theme",
     [
-      ["light", "Light"],
       ["dark", "Dark"],
+      ["light", "Light"],
+      ["system", "Follow the system setting"],
     ],
     s.theme,
   )}</div><label class="toggle-row"><input type="checkbox" name="strictSsin" ${s.strictSsin ? "checked" : ""}><span><b>Strict SSIN checksum</b><small>Validate modulo-97, including the post-2000 rule. Demo patients use synthetic identifiers.</small></span></label><label class="toggle-row"><input type="checkbox" name="partial" ${s.partial ? "checked" : ""}><span><b>Simulate partial failure</b><small>Sends X-Simulate-Partial-Failure: true and exposes downstream OperationOutcome issues.</small></span></label>${area("Additional request headers (JSON object)", "headers", s.headers, 'rows="5" placeholder=\'{"X-Correlation-ID": "developer-session"}\'')}<p class="muted">Custom headers stay in memory and are excluded from saved/exported preferences. Use Authentication for tokens and proof headers.</p><button class="btn primary">Save connection</button></form></section><div><section class="panel padded"><div class="section-label">WORKSPACE</div><h2>Portable preferences</h2><p class="muted">Export or import endpoint and display settings. Tokens, signing keys, custom headers, SSINs, documents, and traffic are excluded.</p><div class="button-row">${btn(icon("down") + " Export settings", "export-settings")}${btn(icon("upload") + " Import settings", "import-settings")}</div></section><section class="panel padded"><h2>Connect to the Java simulator</h2><ol class="instructions"><li>Start your existing simulator on port 8080.</li><li>Select <b>Live</b> with base <code>http://localhost:8080/fhir</code>.</li><li>Use the <b>Local proxy</b> transport, save, then discover the server’s capabilities.</li></ol>${btn(icon("network") + " Test connection", "test-connection", "primary")}<p class="muted">Proxy origins default to localhost:8080 and 127.0.0.1:8080. For another hub or token server, set <code>PROXY_ALLOWED_ORIGINS</code> on this viewer’s Node process.</p></section><section class="panel padded"><h2>Session controls</h2><p class="muted">Clear patient documents, traffic, authentication, and saved preferences.</p>${btn("Reset workspace", "reset", "danger")}</section></div></div>`;
@@ -720,7 +1423,7 @@ function applySettings(input) {
   if (
     !["demo", "live"].includes(s.mode) ||
     !["proxy", "direct"].includes(s.transport) ||
-    !["light", "dark"].includes(s.theme)
+    !["light", "dark", "system"].includes(s.theme)
   )
     throw Error("Invalid connection options.");
   if (Number(s.timeout) < 1000 || Number(s.timeout) > 120000)
@@ -743,7 +1446,78 @@ function applySettings(input) {
   state.settings = s;
   persist();
 }
+/** Keep a code editor's highlight layer, gutter, and scroll in sync. */
+function wireEditor(root) {
+  const input = root.querySelector(".editor-input");
+  const view = root.querySelector(".editor-view code");
+  const gutter = root.querySelector(".editor-gutter");
+  if (!input || !view) return;
+  const paint = () => {
+    const lang = root.dataset.lang || "plain";
+    view.innerHTML = highlight(input.value, lang);
+    if (gutter) {
+      const lines = input.value.split("\n").length;
+      gutter.textContent = Array.from({ length: lines }, (_, i) => i + 1).join(
+        "\n",
+      );
+    }
+  };
+  input.addEventListener("input", paint);
+  input.addEventListener("scroll", () => {
+    view.parentElement.scrollTop = input.scrollTop;
+    view.parentElement.scrollLeft = input.scrollLeft;
+    if (gutter) gutter.scrollTop = input.scrollTop;
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab" || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    const { selectionStart: from, selectionEnd: to, value } = input;
+    input.value = value.slice(0, from) + "  " + value.slice(to);
+    input.selectionStart = input.selectionEnd = from + 2;
+    paint();
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  paint();
+}
+
 function wireForms() {
+  document.querySelectorAll("[data-editor]").forEach(wireEditor);
+  document
+    .querySelectorAll("[data-select]")
+    .forEach((el) =>
+      el.addEventListener("change", (e) =>
+        handleAction(el.dataset.select, e.target.value, el),
+      ),
+    );
+  document
+    .querySelectorAll("[data-json-filter]")
+    .forEach((el) =>
+      el.addEventListener("input", (e) =>
+        filterJsonTree(el.closest(".jsonview"), e.target.value),
+      ),
+    );
+  $("#console-form")?.addEventListener("input", (e) => {
+    if (e.target.name)
+      state.console = {
+        ...state.console,
+        ...Object.fromEntries(new FormData(e.currentTarget)),
+      };
+  });
+  $("#log-filter")?.addEventListener("input", (e) => {
+    state.logFilter = e.target.value;
+    const list = document.querySelector(".history-list");
+    if (list) list.innerHTML = trafficRows();
+  });
+  const palette = $("#palette-input");
+  if (palette) {
+    palette.focus();
+    palette.setSelectionRange(palette.value.length, palette.value.length);
+    palette.addEventListener("input", (e) => {
+      state.palette.query = e.target.value;
+      state.palette.index = 0;
+      $("#palette-list").innerHTML = paletteItems(state.palette.query);
+    });
+  }
   $("#search-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     state.query = Object.fromEntries(new FormData(e.target));
@@ -863,21 +1637,14 @@ function wireForms() {
     }
   });
   $("#guide-search")?.addEventListener("input", (e) => {
-    const term = e.target.value;
-    if (!term) {
-      $("#guide-source").textContent = state.igText;
-      return;
-    }
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    $("#guide-source").innerHTML = state.igText
-      .split(new RegExp("(" + escaped + ")", "gi"))
-      .map((t) =>
-        t.toLowerCase() === term.toLowerCase()
-          ? `<mark>${esc(t)}</mark>`
-          : esc(t),
-      )
-      .join("");
-    $("#guide-source mark")?.scrollIntoView({ block: "center" });
+    state.guideQuery = e.target.value;
+    const body = $("#guide-body");
+    if (!body) return;
+    const hits = markMatches(body, state.guideQuery);
+    $("#guide-hits").textContent = state.guideQuery
+      ? `${hits} match${hits === 1 ? "" : "es"}`
+      : "";
+    body.querySelector("mark")?.scrollIntoView({ block: "center" });
   });
   $("#import-file")?.addEventListener("change", (e) =>
     importResource(e.target.files[0]),
@@ -991,20 +1758,48 @@ function preset(p) {
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-action]");
   if (!b) return;
-  const a = b.dataset.action,
-    v = b.dataset.value;
-  if (state.busy && !pages[a] && !["dismiss-error", "log-tab"].includes(a))
+  // A click inside a dialog must not fall through to the backdrop's close.
+  if (
+    b.dataset.action === "close-overlay" &&
+    e.target.closest("[data-stop]") &&
+    !e.target.closest('button[data-action="close-overlay"]')
+  )
+    return;
+  handleAction(b.dataset.action, b.dataset.value, b);
+});
+
+/**
+ * Every user action funnels through here so the command palette, keyboard
+ * shortcuts, and ordinary clicks all take exactly the same path.
+ */
+function handleAction(a, v, b = { dataset: {} }) {
+  if (
+    state.busy &&
+    !pages[a] &&
+    ![
+      "dismiss-error",
+      "log-tab",
+      "close-overlay",
+      "palette",
+      "shortcuts",
+    ].includes(a)
+  )
     return;
   if (pages[a]) {
+    closeOverlays();
     location.hash = a;
     return;
   }
   switch (a) {
-    case "theme":
-      state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
+    case "theme": {
+      const order = ["dark", "light", "system"];
+      state.settings.theme =
+        order[(order.indexOf(state.settings.theme) + 1) % order.length];
       persist();
       render();
+      notify(`Theme: ${state.settings.theme}`);
       break;
+    }
     case "dismiss-error":
       state.error = "";
       render();
@@ -1034,9 +1829,17 @@ document.addEventListener("click", (e) => {
       render();
       break;
     case "retrieve":
+      if (!state.selected) {
+        notify("Select a document first.");
+        break;
+      }
       run(() => retrieve());
       break;
     case "pdf":
+      if (!state.selected) {
+        notify("Select a document first.");
+        break;
+      }
       run(() => retrieve(true));
       break;
     case "download-pdf": {
@@ -1052,11 +1855,15 @@ document.addEventListener("click", (e) => {
         state.payload || state.selected,
       );
       break;
-    case "next":
-      run(() =>
-        search(state.searchBundle.link.find((l) => l.relation === "next").url),
-      );
+    case "next": {
+      const next = state.searchBundle?.link?.find((l) => l.relation === "next");
+      if (!next) {
+        notify("There is no next page for this search.");
+        break;
+      }
+      run(() => search(next.url));
       break;
+    }
     case "import":
       $("#import-file").click();
       break;
@@ -1081,12 +1888,10 @@ document.addEventListener("click", (e) => {
       render();
       break;
     case "copy-curl":
-      navigator.clipboard
-        .writeText(curlCommand(state.logs[state.logIndex]))
-        .then(() => notify("cURL copied; sensitive headers are redacted."))
-        .catch(() =>
-          notify("Clipboard unavailable. Open the cURL tab to copy manually."),
-        );
+      copyText(
+        curlCommand(state.logs[state.logIndex]),
+        "cURL copied; sensitive headers are redacted.",
+      );
       break;
     case "copy-code": {
       const targetId = b.dataset.target;
@@ -1204,8 +2009,245 @@ document.addEventListener("click", (e) => {
       localStorage.removeItem("interhub-settings");
       location.reload();
       break;
+    /* ---- theme ---- */
+    case "theme-set":
+      state.settings.theme = ["light", "dark", "system"].includes(v)
+        ? v
+        : "dark";
+      persist();
+      closeOverlays();
+      render();
+      break;
+    /* ---- overlays ---- */
+    case "palette":
+      state.palette = { open: true, query: "", index: 0 };
+      state.overlay = "";
+      render();
+      $("#palette-input")?.focus();
+      break;
+    case "shortcuts":
+      state.overlay = state.overlay === "shortcuts" ? "" : "shortcuts";
+      state.palette.open = false;
+      render();
+      break;
+    case "close-overlay":
+      closeOverlays();
+      render();
+      break;
+    case "palette-run": {
+      const command = paletteMatches[Number(v)];
+      if (!command) break;
+      closeOverlays();
+      render();
+      handleAction(command.action, command.value, {
+        dataset: { id: command.id },
+      });
+      break;
+    }
+    /* ---- JSON viewer ---- */
+    case "json-tree":
+    case "json-raw":
+      (state.jsonViews[v] ||= {}).mode = a === "json-tree" ? "tree" : "raw";
+      render();
+      break;
+    case "json-wrap":
+      (state.jsonViews[v] ||= {}).wrap = !state.jsonViews[v].wrap;
+      render();
+      break;
+    case "json-expand":
+    case "json-collapse": {
+      const host = document.querySelector(`[data-json-id="${CSS.escape(v)}"]`);
+      const open = a === "json-expand";
+      const nodes = [...(host?.querySelectorAll("details.j-node") || [])];
+      nodes.forEach(
+        (n, i) => (n.open = open && (i < 3000 || n.dataset.path === "")),
+      );
+      state.jsonCollapsed[v] = open
+        ? []
+        : nodes.map((n) => n.dataset.path).filter((path) => path !== "");
+      if (!open && host) {
+        const root = host.querySelector("details.j-node");
+        if (root) root.open = true;
+      }
+      break;
+    }
+    case "json-copy":
+      copyText(jsonSources.get(v) || "", "Copied to clipboard.");
+      break;
+    case "json-download":
+      download(
+        `${v.replace(/[^a-z0-9_-]+/gi, "-")}.json`,
+        jsonSources.get(v) || "",
+      );
+      break;
+    case "json-copy-path":
+      copyText(v, `Copied path ${v}`);
+      break;
+    /* ---- documents ---- */
+    case "sort":
+      state.sort = v;
+      render();
+      break;
+    case "group":
+      state.group = v;
+      render();
+      break;
+    case "compare-toggle": {
+      const id = b.dataset.id;
+      state.compare = state.compare.includes(id)
+        ? state.compare.filter((x) => x !== id)
+        : [...state.compare, id].slice(-2);
+      render();
+      break;
+    }
+    case "compare-clear":
+      state.compare = [];
+      render();
+      break;
+    case "compare-open":
+      if (state.compare.length !== 2) {
+        notify("Pin two documents with the compare button first.");
+        break;
+      }
+      state.detailTab = "compare";
+      selectDoc(state.compare[0]);
+      state.detailTab = "compare";
+      location.hash = "documents";
+      render();
+      break;
+    case "run-search":
+      run(() => search());
+      break;
+    case "console-document":
+      preset("retrieve");
+      location.hash = "console";
+      break;
+    /* ---- console ---- */
+    case "snippet-kind":
+      state.snippetKind = v;
+      render();
+      break;
+    case "copy-snippet":
+      copyText(
+        snippet(state.logs[state.logIndex], state.snippetKind),
+        `${generators[state.snippetKind]?.label || "Snippet"} copied; sensitive headers are redacted.`,
+      );
+      break;
+    case "replay": {
+      const log = state.logs[Number(v)];
+      if (!log) break;
+      const url = new URL(log.url);
+      const base = new URL(state.settings.base.replace(/\/$/, "") + "/");
+      state.console = {
+        ...state.console,
+        method: log.method,
+        path: url.href.startsWith(base.href)
+          ? url.href.slice(base.href.length)
+          : url.pathname.replace(/^\//, ""),
+        contentType: log.headers?.["Content-Type"] || state.console.contentType,
+        accept: log.headers?.Accept || state.console.accept,
+        body: log.body || "",
+      };
+      location.hash = "console";
+      render();
+      notify("Loaded into the request builder. Review and send.");
+      break;
+    }
+    case "export-har":
+      if (!state.logs.length) {
+        notify("No traffic to export yet.");
+        break;
+      }
+      download("interhub-session.har", toHar(state.logs));
+      notify("HAR exported; it includes request and response patient data.");
+      break;
+    case "format-body":
+    case "minify-body": {
+      const input = $("#console-body");
+      if (!input) break;
+      const text = input.value;
+      try {
+        if (/^\s*[{[]/.test(text)) {
+          const parsed = JSON.parse(text);
+          state.console.body =
+            a === "format-body" ? pretty(parsed) : JSON.stringify(parsed);
+        } else {
+          const params = new URLSearchParams(text);
+          state.console.body = params.toString();
+        }
+        render();
+        notify(a === "format-body" ? "Body formatted." : "Body minified.");
+      } catch (error) {
+        notify("Body is not valid JSON: " + error.message);
+      }
+      break;
+    }
+    case "copy-body":
+      copyText(
+        $("#console-body")?.value || state.console.body,
+        "Request body copied.",
+      );
+      break;
+    case "log-filter-clear":
+      state.logFilter = "";
+      render();
+      break;
+    /* ---- guide ---- */
+    case "guide-mode":
+      state.guideMode = v;
+      render();
+      break;
+    case "copy-text-block": {
+      const pre = b.closest?.(".md-code")?.querySelector("pre");
+      copyText(pre?.textContent || "", "Snippet copied.");
+      break;
+    }
   }
-});
+}
+
+function closeOverlays() {
+  state.palette = { open: false, query: "", index: 0 };
+  state.overlay = "";
+}
+
+/** Clipboard write with a graceful fallback for insecure contexts. */
+function copyText(text, message) {
+  if (!text) return;
+  const fallback = () => {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    try {
+      document.execCommand("copy");
+      notify(message);
+    } catch {
+      notify("Clipboard unavailable. Select the text manually to copy.");
+    }
+    document.body.removeChild(area);
+  };
+  if (!navigator.clipboard) return fallback();
+  navigator.clipboard.writeText(text).then(() => notify(message), fallback);
+}
+// `toggle` does not bubble, so this listener runs in the capture phase.
+document.addEventListener(
+  "toggle",
+  (e) => {
+    const node = e.target;
+    if (!node.matches?.("details.j-node")) return;
+    const host = node.closest("[data-json-id]");
+    if (!host) return;
+    const id = host.dataset.jsonId;
+    const collapsed = new Set(state.jsonCollapsed[id] || []);
+    if (node.open) collapsed.delete(node.dataset.path);
+    else collapsed.add(node.dataset.path);
+    state.jsonCollapsed[id] = [...collapsed];
+  },
+  true,
+);
+
 window.addEventListener("hashchange", () => {
   state.page = pages[location.hash.slice(1)]
     ? location.hash.slice(1)
@@ -1213,11 +2255,121 @@ window.addEventListener("hashchange", () => {
   render();
   if (state.page === "guide" && !state.igText) run(loadGuide);
 });
+/* ------------------------------------------------------------------ *
+ * Keyboard
+ * ------------------------------------------------------------------ */
+
+let chord = "";
+const typing = (target) =>
+  target instanceof HTMLElement &&
+  (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) ||
+    target.isContentEditable);
+
+function movePalette(step) {
+  const items = $("#palette-list")?.querySelectorAll(".palette-item") || [];
+  if (!items.length) return;
+  state.palette.index =
+    (state.palette.index + step + items.length) % items.length;
+  items.forEach((item, i) =>
+    item.classList.toggle("active", i === state.palette.index),
+  );
+  items[state.palette.index]?.scrollIntoView({ block: "nearest" });
+}
+
+function moveSelection(step) {
+  const list = visibleDocuments();
+  if (!list.length) return;
+  const at = list.findIndex((d) => d.id === state.selected?.id);
+  selectDoc(list[Math.min(Math.max(at + step, 0), list.length - 1)].id);
+  render();
+  document
+    .querySelector(".doc-row.selected")
+    ?.scrollIntoView({ block: "nearest" });
+}
+
 window.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+  const inField = typing(e.target);
+  const meta = e.ctrlKey || e.metaKey;
+
+  if (meta && e.key.toLowerCase() === "k") {
     e.preventDefault();
-    location.hash = "documents";
-    setTimeout(() => $("#local-filter")?.focus(), 0);
+    handleAction(state.palette.open ? "close-overlay" : "palette");
+    return;
+  }
+  if (e.key === "Escape" && (state.palette.open || state.overlay)) {
+    e.preventDefault();
+    handleAction("close-overlay");
+    return;
+  }
+  if (state.palette.open) {
+    if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+      e.preventDefault();
+      movePalette(1);
+    } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+      e.preventDefault();
+      movePalette(-1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      handleAction("palette-run", String(state.palette.index));
+    }
+    return;
+  }
+  if (meta && e.key === "Enter" && state.page === "console") {
+    e.preventDefault();
+    $("#console-form")?.requestSubmit();
+    return;
+  }
+  if (meta && e.key.toLowerCase() === "s" && state.page === "console") {
+    e.preventDefault();
+    handleAction("format-body");
+    return;
+  }
+  if (inField || e.altKey || meta) return;
+
+  if (chord === "g") {
+    const target = {
+      d: "documents",
+      c: "console",
+      i: "guide",
+      a: "auth",
+      s: "settings",
+      t: "timeline",
+      w: "conformance",
+    }[e.key];
+    chord = "";
+    if (target) {
+      e.preventDefault();
+      location.hash = target;
+    }
+    return;
+  }
+  switch (e.key) {
+    case "g":
+      chord = "g";
+      setTimeout(() => (chord = ""), 1200);
+      break;
+    case "?":
+      e.preventDefault();
+      handleAction("shortcuts");
+      break;
+    case "/":
+      if (state.page !== "documents") location.hash = "documents";
+      e.preventDefault();
+      setTimeout(() => $("#local-filter")?.focus(), 0);
+      break;
+    case "t":
+      handleAction("theme");
+      break;
+    case "j":
+      if (state.page === "documents") moveSelection(1);
+      break;
+    case "k":
+      if (state.page === "documents") moveSelection(-1);
+      break;
+    case "Enter":
+      if (state.page === "documents" && state.selected)
+        handleAction("retrieve");
+      break;
   }
 });
 state.page = pages[location.hash.slice(1)]
