@@ -1,0 +1,93 @@
+import assert from "node:assert/strict";
+const base = "http://localhost:4173";
+const send = async (
+  path,
+  method = "GET",
+  body,
+  accept = "application/fhir+json",
+) =>
+  fetch(base + "/api/proxy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: base },
+    body: JSON.stringify({
+      url: "http://localhost:8080/fhir/" + path,
+      method,
+      headers: {
+        Accept: accept,
+        "Content-Type": path.endsWith("_search")
+          ? "application/x-www-form-urlencoded"
+          : "application/fhir+json",
+        "X-Simulate-Partial-Failure": "true",
+      },
+      body,
+    }),
+  });
+let r = await send("metadata");
+assert.equal(r.status, 200);
+assert.equal((await r.json()).resourceType, "CapabilityStatement");
+r = await send(
+  "DocumentReference/_search",
+  "POST",
+  "patient.identifier=79080412345",
+);
+assert.equal(r.status, 200);
+const b = await r.json();
+assert.equal(b.type, "searchset");
+assert.ok(b.entry.some((e) => e.resource.resourceType === "OperationOutcome"));
+assert.ok(b.entry.some((e) => e.resource.resourceType === "DocumentReference"));
+const retrieve = (id) =>
+  JSON.stringify({
+    resourceType: "Parameters",
+    parameter: [
+      {
+        name: "documentReference",
+        valueReference: { reference: "DocumentReference/" + id },
+      },
+    ],
+  });
+r = await send(
+  "DocumentReference/$retrieve-document",
+  "POST",
+  retrieve("DocRefLabReportContainedExample"),
+);
+assert.equal(r.status, 200);
+assert.equal((await r.json()).type, "document");
+r = await send(
+  "DocumentReference/$retrieve-document",
+  "POST",
+  retrieve("DocRefLabReportContainedExample"),
+  "application/pdf",
+);
+assert.equal(r.status, 200);
+assert.match(r.headers.get("content-type"), /pdf/);
+assert.ok((await r.arrayBuffer()).byteLength > 100);
+r = await send(
+  "DocumentReference/$retrieve-document",
+  "POST",
+  retrieve("withdrawn"),
+);
+assert.equal(r.status, 410);
+assert.equal((await r.json()).resourceType, "OperationOutcome");
+r = await send(
+  "DocumentReference/$retrieve-document",
+  "POST",
+  retrieve("non-existent-document"),
+);
+assert.equal(r.status, 404);
+r = await send("DocumentReference/_search", "POST", "category=labresult");
+assert.equal(r.status, 400);
+r = await fetch(base + "/api/proxy", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Origin: "https://evil.test" },
+  body: "{}",
+});
+assert.equal(r.status, 403);
+r = await fetch(base + "/api/proxy", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ url: "https://example.com", method: "GET" }),
+});
+assert.equal(r.status, 403);
+console.log(
+  "Live Java integration: metadata, search, partial failure, FHIR retrieval, PDF, 410, 404, 400 and proxy origin guards passed.",
+);
