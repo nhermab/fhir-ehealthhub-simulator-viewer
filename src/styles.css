@@ -1557,6 +1557,210 @@ footer .status-dot {
 .timeline-row.selected:before {
   display: none;
 }
+/* Code starters & language pages */
+.code-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.code-lang-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.code-lang-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 550;
+  text-decoration: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.code-lang-pill:hover {
+  background: var(--hover);
+  border-color: var(--green);
+}
+.code-lang-pill.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.code-lang-pill .icon {
+  width: 14px;
+  height: 14px;
+}
+.context-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+}
+.context-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+}
+.context-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.context-item label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.context-item code {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.code-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.code-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  background: var(--soft);
+  border-bottom: 1px solid var(--line);
+}
+.code-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.code-card-title h3 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+}
+.code-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.file-pill {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.run-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10.5px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  color: var(--green);
+}
+.run-hint .icon {
+  width: 13px;
+  height: 13px;
+}
+.code-card-desc {
+  padding: 14px 18px 0;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.code-card-body {
+  padding: 14px 18px 18px;
+  min-width: 0;
+  max-width: 100%;
+}
+.code-block {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 6px;
+  background: #0f1c19;
+  color: #d1e2dc;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: pre;
+}
+[data-theme="dark"] .code-block {
+  background: #091210;
+  color: #cde0d9;
+  border: 1px solid var(--line);
+}
+.code-notes {
+  padding: 10px 14px;
+  margin-top: 12px;
+  background: var(--hover);
+  border-radius: 6px;
+  border-left: 3px solid #329b7d;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.btn.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 550;
+  padding: 6px 11px;
+}
+.btn.copy-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+.btn.copy-btn.copied {
+  background: var(--mint) !important;
+  color: var(--green) !important;
+  border-color: var(--green) !important;
+}
 @keyframes loading {
   to {
     background-position: -200% 0;

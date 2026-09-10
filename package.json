@@ -8,7 +8,7 @@
     "dev": "node server.mjs",
     "start": "node server.mjs",
     "test": "node --test --test-isolation=none tests/*.test.mjs",
-    "check": "node --check src/app.js && node --check src/fhir.js && node --check src/client.js && node --check src/auth.js && node --check server.mjs",
+    "check": "node --check src/app.js && node --check src/fhir.js && node --check src/client.js && node --check src/auth.js && node --check src/code-examples.js && node --check server.mjs",
     "build": "node build.mjs",
     "test:browser": "playwright test",
     "format": "prettier --write src tests server.mjs build.mjs playwright.config.js index.html package.json README.md"

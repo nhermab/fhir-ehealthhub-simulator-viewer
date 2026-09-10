@@ -18,6 +18,13 @@ import {
 } from "./fhir.js";
 import { defaults, requestFHIR, transport } from "./client.js";
 import { generateKey, thumbprint, decodeJwt, tokenRequest } from "./auth.js";
+import {
+  codePythonPage,
+  codeJavascriptPage,
+  codeJavaPage,
+  codeCsharpPage,
+  codeCurlPage,
+} from "./code-examples.js";
 const $ = (s) => document.querySelector(s);
 const esc = (x) =>
   String(x ?? "").replace(
@@ -32,6 +39,7 @@ const icons = {
   file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5",
   search: "M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
   code: "m8 5-7 7 7 7m8-14 7 7-7 7m-3-16-2 18",
+  terminal: "m4 17 6-6-6-6m8 14h8",
   shield: "M12 2 3 6v6c0 6 9 10 9 10s9-4 9-10V6zM8 12l3 3 5-6",
   settings:
     "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z",
@@ -164,6 +172,26 @@ const pages = {
     "Connections & preferences",
     "Your endpoints, transport, and workspace settings.",
   ],
+  "code-python": [
+    "Python Quickstart & Code Examples",
+    "Connect, discover, and retrieve Belgian FHIR documents using Python.",
+  ],
+  "code-javascript": [
+    "JavaScript & Node.js Quickstart",
+    "Connect, discover, and retrieve Belgian FHIR documents using JavaScript and Node.js.",
+  ],
+  "code-java": [
+    "Java Quickstart & Code Examples",
+    "Connect, discover, and retrieve Belgian FHIR documents using Java (HttpClient / HAPI FHIR).",
+  ],
+  "code-csharp": [
+    "C# (.NET) Quickstart & Code Examples",
+    "Connect, discover, and retrieve Belgian FHIR documents using C# and .NET HttpClient.",
+  ],
+  "code-curl": [
+    "cURL & CLI Quickstart",
+    "Raw HTTP requests for testing the Belgian Interhub backend from the command line.",
+  ],
 };
 function notify(message) {
   $("#toast").textContent = message;
@@ -241,9 +269,32 @@ function render() {
       ["settings", "settings", "Connections"],
     ]
       .map(([id, i, t]) => nav(id, i, t))
+      .join("")}<div class="workspace-label secondary">CODE STARTERS</div>${[
+      ["code-python", "code", "Python"],
+      ["code-javascript", "code", "JavaScript / Node"],
+      ["code-java", "code", "Java"],
+      ["code-csharp", "code", "C# (.NET)"],
+      ["code-curl", "terminal", "cURL / CLI"],
+    ]
+      .map(([id, i, t]) => nav(id, i, t))
       .join(
         "",
-      )}</nav><div class="sidebar-bottom"><div class="network-tile"><span class="status-dot"></span><b>${state.settings.mode === "demo" ? "Offline demo" : "Live connection"}</b><p>${state.settings.mode === "demo" ? "Belgian IG sample fixtures" : esc(new URL(state.settings.base).host)}</p>${badge("FHIR R4", "dark-badge")}${badge("MHD", "dark-badge")}</div><div class="user"><span class="avatar">DE</span><div><b>Developer workspace</b><small>Local session · ${state.auth.token ? "Token loaded" : "No token"}</small></div>${btn(icon("sun"), "theme", "icon-btn", 'aria-label="Toggle color theme"')}</div></div></aside><div class="shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon("chevron")} <b>${pages[state.page][0]}</b></div><div class="top-actions">${badge("IG 0.2.0", "neutral")}<span class="env"><span class="status-dot"></span>${state.settings.mode === "demo" ? "Demo environment" : "Live environment"}</span>${btn(icon("settings"), "settings", "icon-btn", 'aria-label="Connection settings"')}</div></header><main id="main" tabindex="-1"><div class="page-head"><div><div class="eyebrow">BELGIAN FEDERATED HEALTH NETWORK</div><h1>${pages[state.page][0]}</h1><p>${pages[state.page][1]}</p></div><div class="head-actions">${state.page === "documents" ? btn(icon("upload") + " Import FHIR", "import") + btn(icon("globe") + " Connection", "settings", "primary") : badge(state.settings.mode === "demo" ? "SYNTHETIC DATA" : "LIVE DATA", state.settings.mode === "demo" ? "neutral" : "warning")}</div></div>${state.error ? `<div class="notice error" role="alert">${icon("alert")}<span>${esc(state.error)}</span>${btn(icon("close"), "dismiss-error", "icon-btn", 'aria-label="Dismiss error"')}</div>` : ""}${state.busy ? '<div class="loading-line" role="status" aria-label="Working"></div>' : ""}${{ documents: documentsPage, timeline: timelinePage, console: consolePage, auth: authPage, conformance: conformancePage, guide: guidePage, settings: settingsPage }[state.page]()}</main><footer><span><span class="status-dot"></span> ${state.settings.mode === "demo" ? "Fixture transport · no backend required" : "Live transport · " + esc(state.settings.transport)}</span><span>Belgian Interhub <span class="footer-sep">/</span> IHE MHD <span class="footer-sep">/</span> HL7 FHIR R4</span></footer></div><input type="file" id="import-file" accept="application/json,.json" hidden><input type="file" id="config-file" accept="application/json,.json" hidden>`;
+      )}</nav><div class="sidebar-bottom"><div class="network-tile"><span class="status-dot"></span><b>${state.settings.mode === "demo" ? "Offline demo" : "Live connection"}</b><p>${state.settings.mode === "demo" ? "Belgian IG sample fixtures" : esc(new URL(state.settings.base).host)}</p>${badge("FHIR R4", "dark-badge")}${badge("MHD", "dark-badge")}</div><div class="user"><span class="avatar">DE</span><div><b>Developer workspace</b><small>Local session · ${state.auth.token ? "Token loaded" : "No token"}</small></div>${btn(icon("sun"), "theme", "icon-btn", 'aria-label="Toggle color theme"')}</div></div></aside><div class="shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon("chevron")} <b>${pages[state.page][0]}</b></div><div class="top-actions">${badge("IG 0.2.0", "neutral")}<span class="env"><span class="status-dot"></span>${state.settings.mode === "demo" ? "Demo environment" : "Live environment"}</span>${btn(icon("settings"), "settings", "icon-btn", 'aria-label="Connection settings"')}</div></header><main id="main" tabindex="-1"><div class="page-head"><div><div class="eyebrow">BELGIAN FEDERATED HEALTH NETWORK</div><h1>${pages[state.page][0]}</h1><p>${pages[state.page][1]}</p></div><div class="head-actions">${state.page === "documents" ? btn(icon("upload") + " Import FHIR", "import") + btn(icon("globe") + " Connection", "settings", "primary") : badge(state.settings.mode === "demo" ? "SYNTHETIC DATA" : "LIVE DATA", state.settings.mode === "demo" ? "neutral" : "warning")}</div></div>${state.error ? `<div class="notice error" role="alert">${icon("alert")}<span>${esc(state.error)}</span>${btn(icon("close"), "dismiss-error", "icon-btn", 'aria-label="Dismiss error"')}</div>` : ""}${state.busy ? '<div class="loading-line" role="status" aria-label="Working"></div>' : ""}${{
+      documents: documentsPage,
+      timeline: timelinePage,
+      console: consolePage,
+      auth: authPage,
+      conformance: conformancePage,
+      guide: guidePage,
+      settings: settingsPage,
+      "code-python": () => codePythonPage(state),
+      "code-javascript": () => codeJavascriptPage(state),
+      "code-java": () => codeJavaPage(state),
+      "code-csharp": () => codeCsharpPage(state),
+      "code-curl": () => codeCurlPage(state),
+    }[
+      state.page
+    ]()}</main><footer><span><span class="status-dot"></span> ${state.settings.mode === "demo" ? "Fixture transport · no backend required" : "Live transport · " + esc(state.settings.transport)}</span><span>Belgian Interhub <span class="footer-sep">/</span> IHE MHD <span class="footer-sep">/</span> HL7 FHIR R4</span></footer></div><input type="file" id="import-file" accept="application/json,.json" hidden><input type="file" id="config-file" accept="application/json,.json" hidden>`;
   wireForms();
 }
 function nav(id, i, t) {
@@ -1037,6 +1088,60 @@ document.addEventListener("click", (e) => {
           notify("Clipboard unavailable. Open the cURL tab to copy manually."),
         );
       break;
+    case "copy-code": {
+      const targetId = b.dataset.target;
+      const codeEl = document.getElementById(targetId);
+      const textToCopy = codeEl ? codeEl.textContent : b.dataset.code;
+      if (textToCopy) {
+        const copyPromise = navigator.clipboard
+          ? navigator.clipboard.writeText(textToCopy)
+          : Promise.reject();
+        copyPromise
+          .then(() => {
+            notify("Code copied to clipboard!");
+            const orig = b.innerHTML;
+            b.innerHTML = icon("check") + " <span>Copied!</span>";
+            b.classList.add("copied");
+            setTimeout(() => {
+              b.innerHTML = orig;
+              b.classList.remove("copied");
+            }, 2000);
+          })
+          .catch(() => {
+            const ta = document.createElement("textarea");
+            ta.value = textToCopy;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              document.execCommand("copy");
+              notify("Code copied to clipboard!");
+              const orig = b.innerHTML;
+              b.innerHTML = icon("check") + " <span>Copied!</span>";
+              b.classList.add("copied");
+              setTimeout(() => {
+                b.innerHTML = orig;
+                b.classList.remove("copied");
+              }, 2000);
+            } catch {
+              notify("Clipboard unavailable. Select text manually to copy.");
+            }
+            document.body.removeChild(ta);
+          });
+      }
+      break;
+    }
+    case "copy-text": {
+      const text = b.dataset.text;
+      if (text) {
+        navigator.clipboard
+          ?.writeText(text)
+          .then(() => notify(`Copied "${text}" to clipboard!`))
+          .catch(() => notify(`Copied: ${text}`));
+      }
+      break;
+    }
     case "export-trace": {
       const l = state.logs[state.logIndex];
       download("interhub-trace.json", {

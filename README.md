@@ -33,6 +33,7 @@ Origins are an exact server-side allowlist. The client can configure endpoints w
 - Composition narratives (rendered as safe text), nested sections, discrete observations, and expandable resources for lab and telemonitoring documents. PDF preview and download; FHIR JSON import/export; patient timeline; local list filtering.
 - Request builder, operation/error presets, bounded session traffic, response bodies and headers, timing, redacted cURL and trace export. Binary responses are represented by size/type in traces.
 - CapabilityStatement discovery, selected FSH-derived structural checks, document reference-closure checks, and a searchable source browser containing all supplied pagecontent and FSH files.
+- Dedicated language starter pages for **Python**, **JavaScript / Node.js**, **Java**, **C# (.NET)**, and **cURL / CLI**, populated dynamically with the active backend endpoint and patient SSIN for fast copy-paste integration.
 - Responsive desktop/mobile layouts, light/dark themes, keyboard-accessible forms, reduced-motion support, and Ctrl/Cmd+K to focus filtering.
 
 ## Authentication
@@ -67,7 +68,7 @@ npm run test:browser
 npm run build
 ```
 
-`npm test` covers wire contracts, SSIN rules, filtering, structural checks, reference closure, request isolation, header redaction, cryptographic proof verification and token request construction. Browser tests cover desktop/mobile discovery, clinical/PDF retrieval, partial outcomes, error responses, key generation, secret persistence, source browsing, filtering and pagination.
+`npm test` covers wire contracts, SSIN rules, filtering, structural checks, reference closure, request isolation, header redaction, cryptographic proof verification, token request construction, and multi-language code generation. Browser tests cover desktop/mobile discovery, clinical/PDF retrieval, partial outcomes, error responses, key generation, secret persistence, source browsing, filtering and pagination.
 
 With the viewer and Java simulator running, `node tests/live-integration.mjs` checks live proxy interoperability, origin guards, opaque POST pagination, and that the Java server refuses everything outside the two transactions exactly as demo mode does. The integration test sends only search/retrieve requests, using fixture patient data.
 
@@ -75,7 +76,8 @@ With the viewer and Java simulator running, `node tests/live-integration.mjs` ch
 
 ## Project layout
 
-- `src/app.js`: workspace UI, forms and session state
+- `src/app.js`: workspace UI, forms, routing, and session state
+- `src/code-examples.js`: language starter pages (Python, JS/Node, Java, C#, cURL)
 - `src/styles.css`: responsive theme and component styling
 - `src/fhir.js`: FHIR/Belgian mappings, requests and structural checks
 - `src/client.js`: live and offline FHIR transports
@@ -83,4 +85,4 @@ With the viewer and Java simulator running, `node tests/live-integration.mjs` ch
 - `server.mjs`: static server and restricted local proxy
 - `public/fixtures/`: copied simulator data
 - `public/ig/`: copied IG Markdown and FSH sources
-- `tests/`: unit, cryptographic, browser and live integration checks
+- `tests/`: unit, cryptographic, code starter, browser and live integration checks
