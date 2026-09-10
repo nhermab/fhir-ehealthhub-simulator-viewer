@@ -169,9 +169,40 @@ export async function requestFHIR(path, options, context) {
 function redactedResponse(headers) {
   return redactHeaders(headers);
 }
+/**
+ * The offline transport mirrors the responding hub: exactly two transactions, the same status
+ * codes, and the same opaque POST-based pagination. Demo mode is meant to teach the wire
+ * contract, so anything the live simulator refuses is refused here too.
+ */
+export const UNSUPPORTED_INTERACTION =
+  "This Belgian Interhub responder serves exactly two transactions: getTransactionList — " +
+  "POST [base]/DocumentReference/_search (MHD ITI-67), and getTransaction — " +
+  "POST [base]/DocumentReference/$retrieve-document. GET [base]/metadata returns the " +
+  "CapabilityStatement. No other path, resource type or interaction is available.";
+const PDF_RENDERINGS = {
+  DocRefLabReportContainedExample: "rendered-lab-report-example-01.pdf",
+  DocRefLabReportExample: "rendered-lab-report-example-01.pdf",
+  DocRefTelemonitoringExample: "holter-001.pdf",
+};
+const PAYLOAD_BUNDLES = {
+  DocRefLabReportContainedExample: "BundleLabReportExample",
+  DocRefLabReportExample: "BundleLabReportExample",
+  DocRefTelemonitoringExample: "BundleTelemonitoringExample",
+};
+const encodeContinuation = (params) =>
+  btoa(params.toString()).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const decodeContinuation = (token) => {
+  try {
+    return new URLSearchParams(
+      atob(token.replace(/-/g, "+").replace(/_/g, "/")),
+    );
+  } catch {
+    return null;
+  }
+};
 export async function demoRequest(path, request, settings) {
   const url = new URL(path, "http://demo/fhir/");
-  const route = url.pathname.replace(/^\/fhir\//, "");
+  const route = url.pathname.replace(/^\/fhir\//, "").replace(/\/$/, "");
   const json = (data, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -180,16 +211,39 @@ export async function demoRequest(path, request, settings) {
         "X-Viewer-Source": "offline-fixture",
       },
     });
+  const unsupported = () =>
+    json(outcome("not-supported", UNSUPPORTED_INTERACTION), 404);
+  const wantsPdf = () =>
+    (request.headers.Accept || "").toLowerCase().includes("application/pdf");
   if (route === "metadata")
     return json(
       await fixture(
-        "metadata/CapabilityStatement-BeInterhubDocumentResponder.json",
+        "metadata/CapabilityStatement-BeInterhubDocumentResponderSimulator.json",
       ),
     );
   const docs = await demoData();
   if (route === "DocumentReference/_search") {
-    const p = new URLSearchParams(request.body),
-      identifier = p.get("patient.identifier");
+    if (wantsPdf())
+      return json(
+        outcome(
+          "not-supported",
+          "getTransactionList answers a FHIR searchset Bundle. application/pdf is only available on $retrieve-document.",
+        ),
+        406,
+      );
+    let p = new URLSearchParams(request.body);
+    if (p.get("_continuation")) {
+      p = decodeContinuation(p.get("_continuation"));
+      if (!p)
+        return json(
+          outcome(
+            "value",
+            "The supplied _continuation token is unknown or expired. Re-run the original POST /DocumentReference/_search query to obtain a fresh result set.",
+          ),
+          400,
+        );
+    }
+    const identifier = p.get("patient.identifier");
     if (!identifier)
       return json(
         outcome("required", "Mandatory patient.identifier is missing."),
@@ -198,46 +252,77 @@ export async function demoRequest(path, request, settings) {
     const parts = identifier.split("|");
     if (parts.length > 1 && ![SSIN, SSIN_OID].includes(parts[0]))
       return json(
-        outcome("value", "Unsupported patient identifier system."),
+        outcome(
+          "value",
+          "Unsupported patient identifier system '" + parts[0] + "'.",
+        ),
         400,
       );
     const valid = validateSsin(parts.at(-1), settings.strictSsin);
     if (!valid.valid) return json(outcome("value", valid.message), 400);
+    const scope = p.get("searchtype") || "federated";
+    if (!["local", "federated"].includes(scope))
+      return json(
+        outcome(
+          "value",
+          "Unsupported searchtype '" + scope + "'. Use 'local' or 'federated'.",
+        ),
+        400,
+      );
+    if (p.get("_sort") && !["date", "-date"].includes(p.get("_sort")))
+      return json(
+        outcome(
+          "value",
+          "Unsupported _sort '" +
+            p.get("_sort") +
+            "'. Interhub defines -date (default) and date.",
+        ),
+        400,
+      );
     p.set(
       "patient.identifier",
       parts.length > 1 ? parts[0] + "|" + valid.normalized : valid.normalized,
     );
+    // transactions.md §2.2: status defaults to current.
+    if (!p.get("status")) p.set("status", "current");
     const all = filterFixtures(docs, p),
-      count = Math.max(1, Math.min(100, Number(p.get("_count")) || 20)),
+      count = Math.max(1, Math.min(200, Number(p.get("_count")) || 20)),
       offset = Number(p.get("_offset")) || 0;
-    const entry = all
-      .slice(offset, offset + count)
-      .map((resource) => ({
-        fullUrl: settings.base + "/DocumentReference/" + resource.id,
-        resource,
-        search: { mode: "match" },
-      }));
-    if (settings.partial)
+    const page = all.slice(offset, offset + count);
+    const entry = page.map((resource) => ({
+      fullUrl: settings.base + "/DocumentReference/" + resource.id,
+      resource,
+      search: { mode: "match" },
+    }));
+    // A local search never fans out, so it never reports a downstream partial failure.
+    if (settings.partial && scope !== "local")
       entry.push({
         resource: await fixture(
           "operation-outcomes/OperationOutcome-OutcomePartialFailureExample.json",
         ),
         search: { mode: "outcome" },
       });
-    const link = [];
-    if (offset + count < all.length) {
-      p.set("_offset", offset + count);
+    const link = [
+      { relation: "self", url: settings.base + "/DocumentReference/_search" },
+    ];
+    if (offset + page.length < all.length) {
+      const nextParams = new URLSearchParams(p);
+      nextParams.set("_offset", offset + page.length);
       link.push({
         relation: "next",
-        url: settings.base + "/DocumentReference/_search?" + p,
+        url:
+          settings.base +
+          "/DocumentReference/_search?_continuation=" +
+          encodeContinuation(nextParams),
       });
     }
     return json({
       resourceType: "Bundle",
       type: "searchset",
+      timestamp: new Date().toISOString(),
       total: all.length,
-      entry,
       link,
+      entry,
     });
   }
   if (route === "DocumentReference/$retrieve-document") {
@@ -253,16 +338,11 @@ export async function demoRequest(path, request, settings) {
     const id = ref?.reference || ref?.identifier?.value;
     if (!id)
       return json(
-        outcome("required", "Missing documentReference parameter."),
-        400,
-      );
-    if (/withdrawn/i.test(id))
-      return json(
         outcome(
-          "not-found",
-          "Document withdrawn by its source system. Clear stale bookmarks.",
+          "required",
+          "Mandatory parameter 'documentReference' is missing. Supply a Parameters resource with parameter[name=documentReference].valueReference.",
         ),
-        410,
+        400,
       );
     const doc = docs.find(
       (d) =>
@@ -270,56 +350,46 @@ export async function demoRequest(path, request, settings) {
         d.masterIdentifier?.value === id ||
         d.identifier?.some((i) => i.value === id),
     );
-    if (!doc || doc.id === "DocRefMinimalExample")
+    if (doc?.status === "entered-in-error" || (!doc && /withdrawn|gone/i.test(id)))
       return json(
         outcome(
           "not-found",
-          "No payload fixture is available for this document reference.",
+          "The hub knew this document but its source system has withdrawn it. Clear any stale bookmark rather than retrying.",
+        ),
+        410,
+      );
+    if (!doc)
+      return json(
+        outcome(
+          "not-found",
+          "The requested document uniqueId does not exist, or is no longer served by this hub.",
         ),
         404,
       );
-    const tele = doc.id.includes("Telemonitoring");
-    if (request.headers.Accept.includes("application/pdf"))
-      return fetch(
-        "/fixtures/binaries/" +
-          (tele ? "holter-001.pdf" : "rendered-lab-report-example-01.pdf"),
-      );
-    return json(
-      await fixture(
-        "document-bundles/Bundle-" +
-          (tele ? "BundleTelemonitoringExample" : "BundleLabReportExample") +
-          ".json",
-      ),
-    );
-  }
-  if (route.startsWith("DocumentReference/")) {
-    const d = docs.find((d) => d.id === route.split("/").at(-1));
-    return d
-      ? json(d)
-      : json(outcome("not-found", "DocumentReference not found."), 404);
-  }
-  if (route.startsWith("Bundle/")) {
-    try {
-      return json(
-        await fixture(
-          "document-bundles/Bundle-" + route.split("/").at(-1) + ".json",
-        ),
-      );
-    } catch {
-      return json(outcome("not-found", "Bundle not found."), 404);
+    if (wantsPdf()) {
+      const rendering = PDF_RENDERINGS[doc.id];
+      if (!rendering)
+        return json(
+          outcome(
+            "not-supported",
+            "This hub publishes no PDF rendering for document reference '" +
+              id +
+              "'. Retrieve the structured document Bundle instead.",
+          ),
+          406,
+        );
+      return fetch("/fixtures/binaries/" + rendering);
     }
+    const payload = PAYLOAD_BUNDLES[doc.id];
+    if (!payload)
+      return json(
+        outcome(
+          "not-found",
+          "The requested document uniqueId does not exist, or is no longer served by this hub.",
+        ),
+        404,
+      );
+    return json(await fixture("document-bundles/Bundle-" + payload + ".json"));
   }
-  if (route.startsWith("Binary/")) {
-    const id = route.split("/").at(-1);
-    if (!["holter-001", "rendered-lab-report-example-01"].includes(id))
-      return json(outcome("not-found", "Binary not found."), 404);
-    return fetch("/fixtures/binaries/" + id + ".pdf");
-  }
-  return json(
-    outcome(
-      "not-supported",
-      "This interaction is not included in the offline fixture transport.",
-    ),
-    400,
-  );
+  return unsupported();
 }

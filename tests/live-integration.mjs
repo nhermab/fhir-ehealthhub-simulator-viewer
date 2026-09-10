@@ -76,6 +76,44 @@ r = await send(
 assert.equal(r.status, 404);
 r = await send("DocumentReference/_search", "POST", "category=labresult");
 assert.equal(r.status, 400);
+// Only the two transactions are served; everything else answers not-supported.
+for (const path of [
+  "Bundle/BundleLabReportExample",
+  "Binary/rendered-lab-report-example-01",
+  "DocumentReference/DocRefLabReportContainedExample",
+]) {
+  r = await send(path);
+  assert.equal(r.status, 404, path);
+  assert.equal((await r.json()).issue[0].code, "not-supported", path);
+}
+// Paging stays on POST and the continuation token hides the query criteria.
+r = await send(
+  "DocumentReference/_search",
+  "POST",
+  "patient.identifier=79080412345&_count=2",
+);
+const firstPage = await r.json();
+assert.equal(firstPage.total, 4);
+const next = firstPage.link.find((l) => l.relation === "next");
+assert.ok(next && !next.url.includes("79080412345"));
+r = await send(
+  "DocumentReference/_search",
+  "POST",
+  new URL(next.url).searchParams.toString(),
+);
+const secondPage = await r.json();
+assert.equal(secondPage.total, 4);
+assert.notDeepEqual(
+  secondPage.entry.map((e) => e.resource.id),
+  firstPage.entry.map((e) => e.resource.id),
+);
+r = await send(
+  "DocumentReference/$retrieve-document",
+  "POST",
+  retrieve("DocRefMinimalExample"),
+  "application/pdf",
+);
+assert.equal(r.status, 406);
 r = await fetch(base + "/api/proxy", {
   method: "POST",
   headers: { "Content-Type": "application/json", Origin: "https://evil.test" },
