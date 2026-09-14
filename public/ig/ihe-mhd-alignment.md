@@ -10,7 +10,7 @@
 
 ## 1. Executive Summary & Context
 
-The Belgian federated hub ecosystem (connecting regional hubs **CoZo**, **RSW**, **BHN**, and **Zodap** via the national **Metahub**) is modernizing its communication interfaces from legacy SOAP/KMEHR Web Services to RESTful HL7® FHIR®.
+The Belgian federated hub ecosystem (connecting regional hubs **CoZo**, **RSW**, **Abrumet+**, and **Zodap** via the national **Metahub**) is modernizing its communication interfaces from legacy SOAP/KMEHR Web Services to RESTful HL7® FHIR®.
 
 To guarantee global interoperability, cross-border compatibility with the **European Health Data Space (EHDS)**, and seamless bridging to existing **IHE XDS.b / XCA** document registries, Belgian Interhub metadata discovery is explicitly based on the **IHE MHD (Mobile access to Health Documents)** specification family.
 
@@ -60,7 +60,7 @@ In the Belgian federated health ecosystem, document discovery (`getTransactionLi
 In a centralized repository, referencing external resources (`Practitioner/123`, `Organization/456`) is standard practice. However, in a **federated, multi-hub ecosystem**, the UnContained pattern creates severe architectural and operational hurdles:
 
 1. **The N+1 Network Query Problem**:
-   If a `getTransactionList` search returns 50 document entries, and each entry points to external Practitioner, Organization, and Patient endpoints across separate regional hubs (CoZo, RSW, BHN), the initiating hub would need to execute up to **150+ additional HTTP GET requests** across regional gateways just to assemble and render the search result with physician names and hospital identifiers.
+   If a `getTransactionList` search returns 50 document entries, and each entry points to external Practitioner, Organization, and Patient endpoints across separate regional hubs (CoZo, RSW, Abrumet+), the initiating hub would need to execute up to **150+ additional HTTP GET requests** across regional gateways just to assemble and render the search result with physician names and hospital identifiers.
 2. **Cross-Hub Gateway Authentication Overhead**:
    Dereferencing external endpoints across different hubs requires establishing authenticated, token-bearing sessions with multiple distinct regional security gateways, dramatically increasing failure rates and latency.
 3. **Resolution of the Federal `BeDocumentReference` `author 1..1` Constraint**:
@@ -206,6 +206,17 @@ To prevent patient identifiers (such as Belgian SSINs) and query criteria from l
 1. **Document Discovery**: Clients send `POST [base]/DocumentReference/_search` with `application/x-www-form-urlencoded` body content. This is natively conformant with **IHE MHD ITI-67**, which explicitly permits Document Consumers to use either GET or POST search.
 2. **Document Retrieval**: Because FHIR R4 defines standard `read` as an HTTP GET interaction, Belgian Interhub specifies a national FHIR operation: **`POST [base]/DocumentReference/$retrieve-document`**.
 3. **Gateway Adaptation**: Where an IHE MHD responder sits behind the hub gateway, the gateway translates `POST $retrieve-document` into downstream **IHE MHD ITI-68 (`GET <attachment.url>`)**. This decouples Belgian clients from raw repository endpoints and prevents SSRF vulnerabilities. See [EHDS Alignment §5](ehds-alignment.html#5-architectural-alignment-belgian-post-everywhere-api--ihe-mhd--xds-gateway-adaptation) for the complete gateway translation matrix.
+
+---
+
+### 4.8 Topic 8: Laboratory Results Beyond the Document (IHE QEDm & mXDE)
+
+#### Context & Discussion
+MHD shares whole documents. For trend follow-up of individual lab results (DIGIRELAB), IHE offers two companion profiles, and the Interhub reuses both in their simplest form:
+1. **[IHE QEDm](https://profiles.ihe.net/PCC/QEDm/) PCC-44** is the query for individual `Observation` resources by patient, code and date. The Interhub laboratory observation search is PCC-44 over HTTP POST, with the patient identified by SSIN.
+2. **[IHE mXDE](https://profiles.ihe.net/ITI/mXDE/)** traces each extracted data element back to its source document, using a separate `Provenance` resource. The Interhub carries that same link inline on the Observation (`derivedFrom` = document uniqueId, `homeCommunityId` = hub holding the document), so no Provenance resource or additional endpoint is needed.
+
+All references in the returned Observation are logical references by business identifier (SSIN, NIHDI, CBE, document uniqueId). This is the same principle as contained resources in MHD Comprehensive: nothing needs to be dereferenced across hubs. See [Transactions §4.8](transactions.html#48-relationship-to-ihe-qedm-and-ihe-mxde) for the element-by-element mapping.
 
 ---
 

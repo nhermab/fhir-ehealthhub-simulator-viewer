@@ -160,3 +160,32 @@ test("retrieval resolves a logical reference by business identifier", async () =
   assert.equal(response.status, 200);
   assert.equal((await response.json()).id, "BundleTelemonitoringExample");
 });
+
+test("Transaction 3: demo mode searches lab observations and supports continuation paging", async () => {
+  const searchObs = (params = {}) =>
+    send("Observation/_search", {
+      body: new URLSearchParams({
+        "patient.identifier": "79080412345",
+        code: "http://loinc.org|1558-6",
+        ...params,
+      }).toString(),
+    });
+
+  const res = await searchObs();
+  assert.equal(res.status, 200);
+  const bundle = await res.json();
+  assert.equal(bundle.resourceType, "Bundle");
+  assert.equal(bundle.type, "searchset");
+  assert.equal(bundle.total, 1);
+  assert.equal(bundle.entry[0].resource.id, "InterhubObsGlucoseDiscreteExample");
+
+  // Missing code
+  const noCode = await send("Observation/_search", {
+    body: new URLSearchParams({ "patient.identifier": "79080412345" }).toString(),
+  });
+  assert.equal(noCode.status, 400);
+
+  // GET on Observation is refused
+  const getObs = await send("Observation");
+  assert.equal(getObs.status, 405);
+});

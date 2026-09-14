@@ -10,6 +10,7 @@ import {
   title,
   isMinimal,
   searchParams,
+  observationSearchParams,
   retrieveBody,
   splitSearch,
   validateResource,
@@ -156,6 +157,23 @@ const state = {
   localFilter: "",
   category: "",
   view: "list",
+  observationQuery: {
+    patient: "79080412345",
+    system: SSIN,
+    code: "1558-6",
+    category: "",
+    from: "",
+    to: "",
+    searchtype: "federated",
+    _sort: "-date",
+    _count: "20",
+  },
+  observations: [],
+  observationIssues: [],
+  observationBundle: null,
+  selectedObservation: null,
+  observationDetailTab: "overview",
+  observationLocalFilter: "",
   capability: null,
   igText: "",
   igFile: "transactions.md",
@@ -185,6 +203,10 @@ const pages = {
   documents: [
     "Document workspace",
     "Discover, inspect, and retrieve across the Belgian hub network.",
+  ],
+  observations: [
+    "Laboratory observations",
+    "Query discrete analyte time series (DIGIRELAB) across Belgian regional hubs.",
   ],
   timeline: [
     "Patient timeline",
@@ -411,6 +433,21 @@ async function search(next) {
   state.issues = result.issues;
   state.searchBundle = bundle;
   selectDoc(result.documents[0]?.id);
+}
+async function searchObservations(next) {
+  const params = next
+    ? new URL(next).searchParams
+    : observationSearchParams(state.observationQuery, state.settings.strictSsin);
+  const bundle = await request("Observation/_search", {
+    method: "POST",
+    contentType: "application/x-www-form-urlencoded",
+    body: params.toString(),
+  });
+  const result = splitSearch(bundle);
+  state.observations = result.observations;
+  state.observationIssues = result.issues;
+  state.observationBundle = bundle;
+  state.selectedObservation = result.observations[0] || null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -649,6 +686,7 @@ function render() {
   $("#app").innerHTML =
     `<aside class="sidebar"><a class="brand" href="#documents"><span class="brandmark">${icon("grid")}</span><span>interhub<span class="brand-sub">BELGIAN eHEALTH</span></span></a><div class="workspace-label">WORKSPACE</div><nav aria-label="Main navigation">${[
       ["documents", "file", "Documents"],
+      ["observations", "lab", "Observations"],
       ["timeline", "clock", "Patient timeline"],
       ["console", "code", "FHIR console"],
       ["auth", "shield", "Authentication"],
@@ -672,6 +710,7 @@ function render() {
         "",
       )}</nav><div class="sidebar-bottom"><div class="network-tile"><span class="status-dot"></span><b>${state.settings.mode === "demo" ? "Offline demo" : "Live connection"}</b><p>${state.settings.mode === "demo" ? "Belgian IG sample fixtures" : esc(new URL(state.settings.base).host)}</p>${badge("FHIR R4", "dark-badge")}${badge("MHD", "dark-badge")}</div><div class="user"><span class="avatar">DE</span><div><b>Developer workspace</b><small>Local session · ${state.auth.token ? "Token loaded" : "No token"}</small></div></div></div></aside><div class="shell"><header class="topbar"><div class="breadcrumb">Workspace ${icon("chevron")} <b>${pages[state.page][0]}</b></div><div class="top-actions">${btn(`${icon("search")}<span>Search or jump to…</span><kbd aria-hidden="true">${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl"} K</kbd>`, "palette", "palette-trigger", 'aria-label="Search or jump to"')}${badge("IG 0.2.0", "neutral")}${btn(icon(state.settings.theme === "system" ? "globe" : state.settings.theme === "dark" ? "moon" : "sun"), "theme", "icon-btn", `aria-label="Colour theme: ${state.settings.theme}. Click to change." title="Theme: ${state.settings.theme}"`)}${btn(icon("keyboard"), "shortcuts", "icon-btn", 'aria-label="Keyboard shortcuts" title="Keyboard shortcuts"')}<span class="env"><span class="status-dot"></span>${state.settings.mode === "demo" ? "Demo environment" : "Live environment"}</span>${btn(icon("settings"), "settings", "icon-btn", 'aria-label="Connection settings"')}</div></header><main id="main" tabindex="-1"><div class="page-head"><div><div class="eyebrow">BELGIAN FEDERATED HEALTH NETWORK</div><h1>${pages[state.page][0]}</h1><p>${pages[state.page][1]}</p></div><div class="head-actions">${state.page === "documents" ? btn(icon("upload") + " Import FHIR", "import") + btn(icon("globe") + " Connection", "settings", "primary") : badge(state.settings.mode === "demo" ? "SYNTHETIC DATA" : "LIVE DATA", state.settings.mode === "demo" ? "neutral" : "warning")}</div></div>${state.error ? `<div class="notice error" role="alert">${icon("alert")}<span>${esc(state.error)}</span>${btn(icon("close"), "dismiss-error", "icon-btn", 'aria-label="Dismiss error"')}</div>` : ""}${state.busy ? '<div class="loading-line" role="status" aria-label="Working"></div>' : ""}${{
       documents: documentsPage,
+      observations: observationsPage,
       timeline: timelinePage,
       console: consolePage,
       auth: authPage,
@@ -995,6 +1034,62 @@ function checksView(r) {
     pass = checks.filter((c) => c.pass).length;
   return `<div class="check-summary">${icon("shield")}<div><b>${pass} / ${checks.length} local checks passed</b><p>Structural checks derived from the local FSH. Not a full FHIR validator or certification.</p></div></div>${checks.map((c) => `<div class="check-row ${c.pass ? "pass" : "fail"}">${icon(c.pass ? "check" : "alert")}<div><code>${esc(c.path)}</code><small>${esc(c.requirement)}</small></div>${badge(c.pass ? "Pass" : "Review", c.pass ? "" : "warning")}</div>`).join("")}`;
 }
+function observationsPage() {
+  const count = state.observations.length;
+  return `<section class="patient-card"><div class="patient-avatar">${icon("lab")}</div><div class="patient-info"><div class="overline">PATIENT CONTEXT ${badge(state.settings.mode === "demo" ? "SYNTHETIC" : "SEARCH", "neutral")}</div><h2>Jan Peeters</h2><span>male · 04 Aug 1979 · SSIN 79080412345</span></div><div class="patient-id"><span>SSIN / INSS</span><code>${esc(state.observationQuery.patient)}</code></div><div class="patient-id"><span>LOINC analyte</span><code>${esc(state.observationQuery.code)}</code></div><div class="patient-id last"><span>Search scope</span><b>${state.observationQuery.searchtype === "local" ? "Local hub" : "Federated network"}</b></div></section><section class="stats-grid">${stat("lab", "Observations", count, "Matching analyte results", "mint")}${stat("shield", "Profile", "BeInterhubLabObservation", "Belgian DIGIRELAB Profile", "blue")}${stat("network", "Scope", state.observationQuery.searchtype === "local" ? "Local Hub" : "Federated", "Cross-hub discovery", "purple")}${stat("pulse", "Response status", state.observationIssues.length ? "Partial failure" : state.observationBundle ? "200 OK" : "Ready", state.observationIssues.length ? `${state.observationIssues.length} downstream issue(s)` : "Transaction 3 · QEDm PCC-44", state.observationIssues.length ? "amber" : "mint")}</section><section class="search-panel"><form id="observation-search-form"><div class="search-primary">${field("Patient identifier", "patient", state.observationQuery.patient, "text", 'required inputmode="numeric" autocomplete="off"')}${field("LOINC Analyte Code", "code", state.observationQuery.code, "text", 'required placeholder="e.g. 1558-6 or http://loinc.org|1558-6"')}${select("Scope", "searchtype", [["federated", "Federated network (all regional hubs)"], ["local", "Local hub only (this hub)"]], state.observationQuery.searchtype)}<button class="btn primary search-submit" ${state.busy ? "disabled" : ""}>${icon("search")} Search observations</button></div><div class="preset-row" style="margin-top: 10px; gap: 8px;"><span style="font-size: 12px; color: var(--muted); align-self: center;">Quick Analytes:</span>${btn("Fasting Glucose (1558-6)", "set-analyte", "chip", 'data-code="1558-6"')}${btn("Serum Creatinine (2160-0)", "set-analyte", "chip", 'data-code="2160-0"')}${btn("Glucose + Creatinine", "set-analyte", "chip", 'data-code="1558-6,2160-0"')}${btn("HbA1c (4548-4)", "set-analyte", "chip", 'data-code="4548-4"')}</div><details class="advanced-search"><summary><span>Parameters & options</span></summary><div class="form-grid">${field("Date from", "from", state.observationQuery.from, "date")}${field("Date to", "to", state.observationQuery.to, "date")}${select("Category", "category", [["", "Any category (default laboratory)"], ["laboratory", "laboratory (HL7 category)"]], state.observationQuery.category)}${select("Sort order", "_sort", [["-date", "Most recent first (-date)"], ["date", "Oldest first (date)"]], state.observationQuery._sort)}${field("Results per page", "_count", state.observationQuery._count, "number", 'min="1" max="100"')}</div></details></form></section>${state.observationIssues.length ? `<div class="notice warning">${icon("alert")}<div><b>Some downstream sources could not be reached</b><p>These observations are incomplete. Available results remain visible.</p>${state.observationIssues.map((i) => `<small>${esc(i.diagnostics || i.details?.text || i.code)}</small>`).join("")}</div></div>` : ""}<div class="documents-layout"><section class="document-list panel"><div class="panel-heading"><h2>Observations <span class="count">${count}</span></h2></div><div class="list-controls"><div class="filter-search">${icon("search")}<input id="obs-local-filter" aria-label="Filter returned observations" placeholder="Filter these results…" value="${esc(state.observationLocalFilter || "")}"></div></div><div id="observation-rows">${observationRows()}</div></section><section class="document-detail panel">${observationDetail()}</section></div>`;
+}
+function observationRows() {
+  let list = state.observations;
+  if (state.observationLocalFilter) {
+    const q = state.observationLocalFilter.toLowerCase();
+    list = list.filter((o) =>
+      codeText(o.code).toLowerCase().includes(q) ||
+      (o.id && o.id.toLowerCase().includes(q)) ||
+      (o.valueQuantity && String(o.valueQuantity.value).includes(q)),
+    );
+  }
+  if (!list.length) {
+    return `<div class="empty">${icon("lab")}<p>No laboratory observations found. Run a search or pick an analyte preset above.</p></div>`;
+  }
+  return list.map((obs) => {
+    const active = state.selectedObservation?.id === obs.id;
+    const testName = obs.code?.coding?.[0]?.display || obs.code?.text || codeText(obs.code);
+    const codeVal = obs.code?.coding?.[0]?.code || "Observation";
+    const valText = obs.valueQuantity
+      ? `${obs.valueQuantity.value} ${obs.valueQuantity.unit || obs.valueQuantity.code || ""}`
+      : obs.valueString || "No quantitative value";
+    const low = obs.referenceRange?.[0]?.low?.value;
+    const high = obs.referenceRange?.[0]?.high?.value;
+    const rangeText = low !== undefined && high !== undefined ? `${low} – ${high} ${obs.referenceRange[0].low.unit || ""}` : "";
+    const labName = obs.performer?.[0]?.display || obs.performer?.[0]?.identifier?.value || "Laboratory";
+
+    return `<div class="doc-row-wrap"><button class="doc-row ${active ? "selected" : ""}" data-action="select-observation" data-id="${esc(obs.id)}"><span class="doc-icon mint">${icon("lab")}</span><span class="doc-body"><span class="doc-title">${esc(testName)}</span><span class="doc-description"><b>${esc(valText)}</b> ${rangeText ? `(Ref: ${esc(rangeText)})` : ""}</span><span class="doc-meta">${esc(labName)} <span>·</span> ${date(obs.effectiveDateTime)}</span><span class="doc-badges">${badge(obs.status || "final")}${badge("LOINC " + codeVal, "blue")}${badge(obs.extension?.find((e) => e.url.endsWith("home-community-id"))?.valueUri ? "Federated" : "Local", "neutral")}</span></span>${icon("chevron")}</button></div>`;
+  }).join("");
+}
+function observationDetail() {
+  const obs = state.selectedObservation;
+  if (!obs) {
+    return `<div class="empty large">${icon("lab")}<h2>Select an observation</h2><p>Choose an analyte result from the list to inspect its discrete data, validation, and source report.</p></div>`;
+  }
+  const testName = obs.code?.coding?.[0]?.display || obs.code?.text || codeText(obs.code);
+  const codeVal = obs.code?.coding?.[0]?.code || "";
+  const valText = obs.valueQuantity
+    ? `${obs.valueQuantity.value} ${obs.valueQuantity.unit || obs.valueQuantity.code || ""}`
+    : obs.valueString || "No quantitative value";
+  const low = obs.referenceRange?.[0]?.low?.value;
+  const high = obs.referenceRange?.[0]?.high?.value;
+  const rangeText = low !== undefined && high !== undefined ? `${low} – ${high} ${obs.referenceRange[0].low.unit || ""}` : "Not defined";
+  const labName = obs.performer?.[0]?.display || obs.performer?.[0]?.identifier?.value || "Laboratory";
+  const labId = obs.performer?.[0]?.identifier?.value || "Not supplied";
+  const homeCommunity = extension(obs, "home-community-id")?.valueUri || "Not supplied";
+  const derivedUniqueId = obs.derivedFrom?.[0]?.identifier?.value || "";
+  const derivedTitle = obs.derivedFrom?.[0]?.display || "Biochemistry & Hematology Laboratory Report";
+  const checks = validateResource(obs);
+  const passCount = checks.filter((c) => c.pass).length;
+  const tab = state.observationDetailTab || "overview";
+
+  return `<header class="detail-header"><div><div class="overline">BELGIAN INTERHUB LABORATORY OBSERVATION</div><h1>${esc(testName)}</h1><div class="detail-meta"><span>LOINC: <code>${esc(codeVal)}</code></span> <span>·</span><span>Effective: ${date(obs.effectiveDateTime)}</span> <span>·</span><span>Performer: ${esc(labName)}</span></div></div><div class="detail-actions">${derivedUniqueId ? btn(icon("file") + " Retrieve source document", "retrieve-derived", "primary", `data-id="${esc(derivedUniqueId)}"`) : ""}</div></header><div class="tabs" role="tablist">${[["overview", "Overview & Value"], ["provenance", "Provenance & Source Report"], ["checks", `Structural checks (${passCount}/${checks.length})`], ["json", "FHIR JSON"]].map(([k, v]) => `<button role="tab" aria-selected="${tab === k}" data-action="obs-detail-tab" data-value="${k}" class="${tab === k ? "active" : ""}">${v}</button>`).join("")}</div><div class="tab-content">${tab === "overview" ? `<div class="overview-grid"><section class="card"><h3>Laboratory Result</h3><div class="result-display" style="padding: 16px 0;"><div style="font-size: 32px; font-weight: 700; color: var(--accent);">${esc(valText)}</div><div style="color: var(--muted); margin-top: 4px;">Reference range: <b>${esc(rangeText)}</b></div></div><dl class="kv-grid">${kv("Status", obs.status)}${kv("Effective time", obs.effectiveDateTime)}${kv("Analyte code", codeVal)}${kv("Code system", obs.code?.coding?.[0]?.system || "http://loinc.org")}</dl></section><section class="card"><h3>Performing Facility & Routing</h3><dl class="kv-grid">${kv("Performing laboratory", labName)}${kv("Laboratory NIHDI / CBE", labId)}${kv("Home Community ID", homeCommunity)}${kv("Patient SSIN", obs.subject?.identifier?.value)}</dl></section></div>` : tab === "provenance" ? `<section class="card"><h3>IHE mXDE & DIGIRELAB Provenance</h3><p class="muted" style="margin-bottom: 16px;">Every <code>BeInterhubLabObservation</code> carries inline traceability to the legal laboratory report it was extracted from, eliminating the need for separate Provenance endpoints.</p><dl class="kv-grid">${kv("Source report title", derivedTitle)}${kv("Source document uniqueId (masterIdentifier)", derivedUniqueId)}${kv("Target hub for $retrieve-document", homeCommunity)}</dl><div style="margin-top: 20px;">${btn(icon("file") + " Retrieve complete legal document ($retrieve-document)", "retrieve-derived", "primary", `data-id="${esc(derivedUniqueId)}" title="Execute POST [base]/DocumentReference/$retrieve-document"`)}</div></section>` : tab === "checks" ? `<section class="card"><h3>BeInterhubLabObservation Structural Conformance</h3><p class="muted" style="margin-bottom: 16px;">Verified against the normative profile constraints in <code>be-interhub-observation.fsh</code>.</p><table class="checks-table"><thead><tr><th>Element</th><th>Status</th><th>Requirement</th></tr></thead><tbody>${checks.map((c) => `<tr class="${c.pass ? "pass" : "fail"}"><td><code>${esc(c.path)}</code></td><td>${badge(c.pass ? "PASS" : "FAIL", c.pass ? "mint" : "warning")}</td><td>${esc(c.requirement)}</td></tr>`).join("")}</tbody></table></section>` : `<div class="editor-toolbar"><span class="section-label">FHIR R4 JSON</span>${btn(icon("copy") + " Copy JSON", "copy-text", "chip", `data-text="${esc(pretty(obs))}"`)}</div>${codeBlock(pretty(obs), "json")}`}</div>`;
+}
 function timelinePage() {
   return `<section class="panel timeline-panel"><div class="panel-heading"><h2>Document history</h2>${btn("Back to documents", "documents")}</div>${
     [...state.documents]
@@ -1113,6 +1208,8 @@ function consolePage() {
   return `<div class="console-layout"><section class="panel request-builder"><div class="panel-heading"><h2>Request builder</h2>${badge(state.settings.mode === "demo" ? "FIXTURE TRANSPORT" : "LIVE TRANSPORT", "neutral")}</div><div class="preset-row">${[
     ["search", "ITI-67 Search"],
     ["retrieve", "ITI-68 Retrieve"],
+    ["lab-glucose", "Transaction 3 (Glucose)"],
+    ["lab-creatinine", "Transaction 3 (Creatinine)"],
     ["metadata", "Capabilities"],
     ["withdrawn", "410 Gone"],
     ["missing", "404 Not found"],
@@ -1202,6 +1299,11 @@ function conformancePage() {
       "Implemented",
     ],
     [
+      "Transaction 3 (DIGIRELAB)",
+      "POST Observation/_search, LOINC analyte codes, time-series query, inline traceability via derivedFrom to source report.",
+      "Implemented",
+    ],
+    [
       "Belgian metadata",
       "Minimal / Comprehensive, contained parties, patient access, routing, record time, ETK and relationships.",
       "Implemented",
@@ -1253,6 +1355,7 @@ const guides = [
   ["be-interhub-documentreference.fsh", "FSH · Comprehensive"],
   ["be-interhub-minimal-documentreference.fsh", "FSH · Minimal"],
   ["be-interhub-document-bundle.fsh", "FSH · Document bundle"],
+  ["be-interhub-observation.fsh", "FSH · Lab observation"],
   ["be-interhub-extensions.fsh", "FSH · Belgian extensions"],
   ["be-interhub-capabilities.fsh", "FSH · Capabilities"],
   ["be-interhub-codesystems.fsh", "FSH · Terminology"],
@@ -1527,6 +1630,19 @@ function wireForms() {
     state.localFilter = e.target.value;
     $("#document-rows").innerHTML = documentRows();
   });
+  $("#observation-search-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    state.observationQuery = {
+      ...state.observationQuery,
+      ...Object.fromEntries(new FormData(e.target)),
+    };
+    run(() => searchObservations());
+  });
+  $("#obs-local-filter")?.addEventListener("input", (e) => {
+    state.observationLocalFilter = e.target.value;
+    const rowsEl = $("#observation-rows");
+    if (rowsEl) rowsEl.innerHTML = observationRows();
+  });
   $("#console-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     state.console = Object.fromEntries(new FormData(e.target));
@@ -1739,6 +1855,22 @@ function preset(p) {
     c.path = "DocumentReference/_search";
     c.contentType = "application/x-www-form-urlencoded";
     c.body = searchParams(state.query).toString();
+  } else if (p === "lab-glucose") {
+    c.path = "Observation/_search";
+    c.contentType = "application/x-www-form-urlencoded";
+    c.body = new URLSearchParams({
+      "patient.identifier": `${SSIN}|79080412345`,
+      code: "http://loinc.org|1558-6",
+      _sort: "-date",
+    }).toString();
+  } else if (p === "lab-creatinine") {
+    c.path = "Observation/_search";
+    c.contentType = "application/x-www-form-urlencoded";
+    c.body = new URLSearchParams({
+      "patient.identifier": `${SSIN}|79080412345`,
+      code: "http://loinc.org|2160-0",
+      _sort: "-date",
+    }).toString();
   } else {
     c.path = "DocumentReference/$retrieve-document";
     c.body = pretty(
@@ -1808,6 +1940,52 @@ function handleAction(a, v, b = { dataset: {} }) {
       selectDoc(b.dataset.id);
       render();
       break;
+    case "select-observation":
+      state.selectedObservation =
+        state.observations.find((o) => o.id === b.dataset.id) || null;
+      render();
+      break;
+    case "obs-detail-tab":
+      state.observationDetailTab = v;
+      render();
+      break;
+    case "set-analyte":
+      state.observationQuery.code = b.dataset.code;
+      render();
+      run(() => searchObservations());
+      break;
+    case "run-observation-search":
+      closeOverlays();
+      if (state.page !== "observations") location.hash = "observations";
+      run(() => searchObservations());
+      break;
+    case "retrieve-derived": {
+      const docId = b.dataset.id;
+      if (docId) {
+        run(async () => {
+          location.hash = "documents";
+          const ref = docId.includes("/")
+            ? docId
+            : { system: "urn:ietf:rfc:3986", value: docId };
+          const bundle = await request("DocumentReference/$retrieve-document", {
+            method: "POST",
+            body: retrieveBody(ref),
+          });
+          state.payload = bundle;
+          state.detailTab = "payload";
+          const matchDoc = state.documents.find(
+            (d) =>
+              d.masterIdentifier?.value === docId ||
+              d.id === docId.split("/").at(-1),
+          );
+          if (matchDoc) {
+            state.selected = matchDoc;
+          }
+          render();
+        });
+      }
+      break;
+    }
     case "open-document":
       selectDoc(b.dataset.id);
       location.hash = "documents";
@@ -2254,6 +2432,8 @@ window.addEventListener("hashchange", () => {
     : "documents";
   render();
   if (state.page === "guide" && !state.igText) run(loadGuide);
+  if (state.page === "observations" && !state.observations.length)
+    run(() => searchObservations());
 });
 /* ------------------------------------------------------------------ *
  * Keyboard
@@ -2379,6 +2559,8 @@ render();
 if (state.settings.mode === "demo")
   run(async () => {
     await search();
+    await searchObservations();
     if (state.page === "guide") await loadGuide();
   });
 else if (state.page === "guide") run(loadGuide);
+else if (state.page === "observations") run(() => searchObservations());

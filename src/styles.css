@@ -2186,7 +2186,9 @@ footer .status-dot {
     height: 58px;
   }
   .top-actions > .badge,
-  .env {
+  .env,
+  .palette-trigger span,
+  .palette-trigger kbd {
     display: none;
   }
   .breadcrumb {

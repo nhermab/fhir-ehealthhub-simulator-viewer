@@ -5,6 +5,7 @@ Alias: $LNC = http://loinc.org
 Alias: $SCT = http://snomed.info/sct
 Alias: $UCUM = http://unitsofmeasure.org
 Alias: $V2-0074 = http://terminology.hl7.org/CodeSystem/v2-0074
+Alias: $OBS-CATEGORY = http://terminology.hl7.org/CodeSystem/observation-category
 Alias: $V3-Confidentiality = http://terminology.hl7.org/CodeSystem/v3-Confidentiality
 Alias: $DOC-STATUS = http://hl7.org/fhir/ValueSet/composition-status
 Alias: $MHD-FORMATCODES = http://ihe.net/fhir/ValueSet/mhd-formatcodes

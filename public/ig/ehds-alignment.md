@@ -63,7 +63,7 @@ Belgium carries several capabilities that the European baseline does not require
 
 ### 3.1 Federated Multi-Hub Routing (`homeCommunityId`)
 * **EHDS**: Typically models exchanges through a single National Contact Point for eHealth (NCPeH) per Member State.
-* **Belgium**: Operates a federated multi-hub network (CoZo, RSW, BHN, Zodap, Metahub). The Belgian profile incorporates `BeExtHomeCommunityId` and `repositoryUniqueId` to support distributed multi-hub queries, deduplication, and direct peer-to-peer document retrieval.
+* **Belgium**: Operates a federated multi-hub network (CoZo, RSW, Abrumet+, Zodap, Metahub). The Belgian profile incorporates `BeExtHomeCommunityId` and `repositoryUniqueId` to support distributed multi-hub queries, deduplication, and direct peer-to-peer document retrieval.
 
 ### 3.2 Granular Patient Access Governance (`BeExtPatientAccess`)
 * **EHDS**: Patient access is generally handled out-of-band at the portal level.
@@ -89,7 +89,7 @@ sequenceDiagram
     actor Caregiver as Foreign EU Caregiver
     participant FNCP as Foreign NCPeH (National Contact Point)
     participant BENCP as Belgian NCPeH (eHealth Platform)
-    participant Hubs as Belgian eHealth Hubs (CoZo / RSW / BHN / Zodap)
+    participant Hubs as Belgian eHealth Hubs (CoZo / RSW / Abrumet+ / Zodap)
     participant Sources as Belgian Hub Sources (Hospitals, Labs, …)
 
     Caregiver->>FNCP: Query Belgian Patient Records (SSIN / EU ID)

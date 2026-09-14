@@ -1,28 +1,32 @@
-# Interhub Transactions: getTransactionList & getTransaction
+# Interhub Transactions: getTransactionList, getTransaction & Lab Observation Search
 
 > **Where this page sits in the guide** — *Specification*, page 2 of 4. This page is the **wire-level contract**: URLs, parameters, status codes and response shapes.
 >
-> * **Owned by this page:** `getTransactionList` (ITI-67), `getTransaction` (ITI-68), partial-failure `OperationOutcome` handling, and the error-code crosswalk.
+> * **Owned by this page:** `getTransactionList` (ITI-67), `getTransaction` (ITI-68), the laboratory observation search, partial-failure `OperationOutcome` handling, and the error-code crosswalk.
 > * **Not covered here:** the fields of the `DocumentReference` returned by ITI-67 → [Envelope & Metadata](envelope-and-metadata.html); how the calling hub is authenticated and the request is tamper-proofed → [Security & Authentication](security.html); what a real payload looks like per domain → [Laboratory Reports](lab-report-sharing.html) and [Telemonitoring](mapping-telemonitoring-to-hub.html); why the payload is a document bundle at all → [Design Rationale](resource-considerations.html).
 > * **Previous:** [Envelope & Metadata](envelope-and-metadata.html) · **Next:** [Security & Authentication](security.html)
 
 ## 1. Overview of Interhub Transactions
 
-The Belgian federated hub architecture relies on two core document-sharing interactions:
+The Belgian federated hub architecture relies on three core interactions:
 1. **Document Discovery (`getTransactionList`)**: Enables an initiating hub to discover available clinical documents for a patient across all connected regional hubs.
 2. **Document Retrieval (`getTransaction`)**: Enables an initiating hub to retrieve the complete, immutable clinical document payload for a specific transaction from the authoritative responding hub.
+3. **Laboratory Observation Search (DIGIRELAB)**: Enables an initiating hub to search across the federation for individual laboratory results by LOINC code, each linked to the laboratory report it was extracted from.
 
-> **Scope Boundary (Intrahub vs. Interhub)**: Clinical applications (EHRs, LIS, regional/patient portals) interact with their local Hub via **Intrahub protocols** (out of scope). The local Hub, acting as the **initiating hub**, executes these Interhub transactions (ITI-67 / ITI-68) across the federation. Interhub communication is strictly Hub-to-Hub.
+> **Scope Boundary (Intrahub vs. Interhub)**: Clinical applications (EHRs, LIS, regional/patient portals) interact with their local Hub via **Intrahub protocols** (out of scope). The local Hub, acting as the **initiating hub**, executes these Interhub transactions across the federation. Interhub communication is strictly Hub-to-Hub.
 
-In the modernized FHIR-based Belgian Interhub standard, these legacy SOAP operations are mapped directly to the **IHE MHD (Mobile access to Health Documents)** profile family on **HL7® FHIR® R4**:
+In the modernized FHIR-based Belgian Interhub standard, these operations are mapped to RESTful HL7® FHIR® R4 interactions, with strict enforcement of HTTP POST:
 
-| Legacy KMEHR SOAP Operation | Target IHE MHD / FHIR Transaction | Target Resource / Action | Payload Returned |
+| Legacy / Domain Operation | Target FHIR / Interhub Transaction | Target Resource / Action | Payload Returned |
 | :--- | :--- | :--- | :--- |
 | **`getTransactionList`** | **MHD ITI-67** (`Find DocumentReferences`) | `POST [base]/DocumentReference/_search`<br/>(`application/x-www-form-urlencoded` body) | `Bundle` (type = `searchset`) containing `BeInterhubDocumentReference` entries |
 | **`getTransaction`** | **MHD ITI-68** (`Retrieve Document`) / `$retrieve-document` | `POST [base]/DocumentReference/$retrieve-document`<br/>(Body: `Parameters` with `documentReference`) | Complete `BeInterhubDocumentBundle` (type = `document`) |
 | **`getTransactionSet`** | **MHD ITI-68** with content negotiation / `$retrieve-document` | `POST [base]/DocumentReference/$retrieve-document`<br/>with `Accept: application/pdf` or `application/fhir+json` | The same document, either as a set of related transactions or as a hub-rendered PDF — see [§3.4](#34-transaction-sets-and-rendered-pdf-gettransactionset) |
+| *(new, DIGIRELAB)* | **Laboratory Observation Search**, based on **IHE QEDm PCC-44** | `POST [base]/Observation/_search`<br/>(Body: `patient.identifier`, `code`, `date`) | `Bundle` (type = `searchset`) containing `BeInterhubLabObservation` entries |
 
-The resource returned by ITI-67 is specified field by field in [Envelope & Metadata](envelope-and-metadata.html#2-element-by-element-specification-beinterhubdocumentreference). The resource returned by `$retrieve-document` is a `BeInterhubDocumentBundle`, whose per-domain content is specified in [Laboratory Reports](lab-report-sharing.html) and [Telemonitoring](mapping-telemonitoring-to-hub.html). The legacy SOAP operations in the left-hand column are crosswalked in [KMEHR to FHIR Mapping](mapping-kmehr-to-hub.html).
+> **Endpoint Restriction**: A responding hub serves only `DocumentReference` (search and `$retrieve-document`) and `Observation` (search). There are no endpoints for Patient, Practitioner, Organization, Specimen or ServiceRequest. Every reference in a returned resource is either a contained resource or a **logical reference** by national business identifier (SSIN, NIHDI, CBE, document uniqueId), never a URL to resolve.
+
+The resource returned by ITI-67 is specified field by field in [Envelope & Metadata](envelope-and-metadata.html#2-element-by-element-specification-beinterhubdocumentreference). The resource returned by `$retrieve-document` is a `BeInterhubDocumentBundle`, whose per-domain content is specified in [Laboratory Reports](lab-report-sharing.html) and [Telemonitoring](mapping-telemonitoring-to-hub.html). The laboratory observation search is specified in [§4](#4-transaction-3-laboratory-observation-search-digirelab). The legacy SOAP operations in the left-hand column are crosswalked in [KMEHR to FHIR Mapping](mapping-kmehr-to-hub.html).
 
 ```mermaid
 sequenceDiagram
@@ -676,7 +680,7 @@ Content-Type: application/fhir+json; fhirVersion=4.0
 }
 ```
 
-> **Retrieval via DocumentReference Reference and Gateway Resolution.** In legacy KMEHR hub services, retrieving a document meant re-sending a `select/transaction` element containing the local id, its `@SL` scheme *and* the full list of author `hcparty` elements copied from the list entry — a composite key the consumer had to carry around and reproduce exactly ([KMEHR to FHIR Mapping §2.1](mapping-kmehr-to-hub.html#21-what-actually-identifies-a-transaction-in-kmehr)). In the modernized model, the consumer submits the target `DocumentReference` reference in the `$retrieve-document` request. The responding hub / gateway securely resolves this reference to the internal repository endpoint and returns the document payload.
+> **Retrieval via DocumentReference Reference and Gateway Resolution.** In legacy KMEHR hub services, retrieving a document meant re-sending a `select/transaction` element containing the local id, its `@SL` scheme *and* the full list of author `hcparty` elements copied from the list entry — a composite key the consumer had to carry around and reproduce exactly ([KMEHR to FHIR Mapping §2.1](mapping-kmehr-to-hub.html#21-what-actually-identifies-a-transaction-in-kmehr)). In the modernized model, the consumer submits the target `DocumentReference` reference in the `$retrieve-document` request. The responding hub / gateway securely resolves this reference to the internal repository endpoint and returns the document payload. The reference may be literal (`DocumentReference/[id]`, as above) or logical, carrying only the document uniqueId in `identifier` (system `urn:ietf:rfc:3986`), which is how a laboratory observation points to its report ([§4.3](#43-from-a-result-to-the-full-report)). The responding hub SHALL accept both.
 
 ### 3.3 Payload Structure: Strictly FHIR Bundles of Type `document`
 
@@ -789,9 +793,264 @@ Rules:
 
 ---
 
-## 4. Error Codes & Exception Crosswalk
+## 4. Transaction 3: Laboratory Observation Search (DIGIRELAB)
 
-### 4.1 How the legacy protocol reports failure
+### 4.1 Trigger & Scope
+
+Under the Belgian **DIGIRELAB** initiative, laboratory reports are shared as FHIR Document Bundles containing discrete `Observation` resources. Clinical use cases such as chronic disease follow-up (a glucose curve, renal function under oncology treatment) need a **time series of one analyte** (e.g. Fasting Glucose `1558-6`, Serum Creatinine `2160-0`, HbA1c `4548-4`) across hospital stays, laboratories and regional hubs.
+
+Answering that through the document transactions forces the consumer to:
+1. Query dozens of `DocumentReference` envelopes across hubs.
+2. Fetch dozens of complete `BeInterhubDocumentBundle` payloads.
+3. Walk every bundle's `Composition`, `DiagnosticReport` and sections to extract a single value.
+
+**Transaction 3** is a federated search that returns the matching lab results directly, as `BeInterhubLabObservation` resources, each linked to the report it was extracted from. The report itself stays the legal reference and is still retrieved with `$retrieve-document`.
+
+---
+
+### 4.2 References Without Endpoints: Logical References
+
+The responding hub serves **no endpoint other than** `DocumentReference` (search and `$retrieve-document`) and `Observation` (search). There is no `/Patient`, `/Practitioner`, `/Organization`, `/Specimen` or `/Encounter`.
+
+That does not require dropping references. FHIR R4 lets a `Reference` name its target by **business identifier only** (`Reference.identifier`, with no `Reference.reference` URL). This is a *logical reference*: the consumer knows exactly *who* or *what* is meant, without being told *where* to fetch it. This guide already uses the same form for `DocumentReference.subject` and `DocumentReference.relatesTo.target`.
+
+In `BeInterhubLabObservation`, every reference is either a logical reference or prohibited:
+
+| Element | Card. | Identified by | Why it is there |
+| :--- | :--- | :--- | :--- |
+| `subject` | **1..1** | SSIN / INSZ (`https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin`) | The initiating hub merges results from several hubs. It checks that each one belongs to the queried patient before merging, instead of trusting each responder blindly. |
+| `performer` | 0..* | NIHDI or CBE number, typed with `BeExtHcPartyType` | Which laboratory produced the value. Results from different laboratories and methods are not always directly comparable on one curve. |
+| `derivedFrom` | **1..1** | Source document **uniqueId** (`urn:ietf:rfc:3986`, = `DocumentReference.masterIdentifier`) | Traceability to the legal report. |
+| `extension[homeCommunityId]` | **1..1** | Hub OID (`urn:oid:1.3.6.1.4.1.21297.1.X`) | Which hub to send `$retrieve-document` to for that report. Same value as on the source `DocumentReference`. |
+| `basedOn`, `partOf`, `focus`, `encounter`, `specimen`, `device`, `hasMember` | 0..0 | — | No national business identifier exists for these, and the context they carry is part of the source report. Panel members are returned as individual observations. |
+
+```json
+"subject": {
+  "identifier": { "system": "https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin", "value": "79080412345" },
+  "display": "Jan Peeters"
+},
+"performer": [ {
+  "extension": [ {
+    "url": "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-ext-hcparty-type",
+    "valueCoding": { "system": "https://www.ehealth.fgov.be/standards/fhir/core/CodeSystem/cd-hcparty", "code": "orghospital" }
+  } ],
+  "identifier": { "system": "https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/nihdi", "value": "71000012" },
+  "display": "UZ Leuven"
+} ],
+"derivedFrom": [ {
+  "identifier": { "system": "urn:ietf:rfc:3986", "value": "urn:oid:1.3.6.1.4.1.21297.100.2.1.815933567" },
+  "display": "Biochemistry & Hematology Laboratory Report (2026-03-15)"
+} ]
+```
+
+A consumer **SHALL NOT** try to resolve a logical reference. There is nothing to resolve: the identifier *is* the information.
+
+---
+
+### 4.3 From a Result to the Full Report
+
+When a clinician needs the full context of a value (specimen, requesting physician, biologist validation, conclusion), the initiating hub:
+
+1. takes `derivedFrom.identifier.value` and the `homeCommunityId` extension from the observation;
+2. sends `$retrieve-document` ([§3.2](#32-http-interaction-the-retrieve-document-operation)) **to the hub named by `homeCommunityId`**, passing the uniqueId as a logical reference:
+
+```http
+POST https://hub.cozo.be/fhir/DocumentReference/$retrieve-document HTTP/1.1
+Content-Type: application/fhir+json; fhirVersion=4.0
+Authorization: Bearer <calling-hub-token>
+
+{
+  "resourceType": "Parameters",
+  "parameter": [ {
+    "name": "documentReference",
+    "valueReference": {
+      "identifier": { "system": "urn:ietf:rfc:3986", "value": "urn:oid:1.3.6.1.4.1.21297.100.2.1.815933567" }
+    }
+  } ]
+}
+```
+
+A responding hub **SHALL** accept both forms of `documentReference`: the literal `DocumentReference/[id]` obtained from `getTransactionList`, and this identifier-only form.
+
+---
+
+### 4.4 Responder Rules
+
+1. **POST search only.** `POST [base]/Observation/_search`. There is no read, no operation and no GET search, for the same reason as [§2.2](#22-http-interaction--query-parameters-post-based-search).
+2. **Same access decision as the source document.** An observation **SHALL NOT** be returned to a request for which its source `DocumentReference` would not be returned by `getTransactionList`. This covers `BeExtPatientAccess`, `securityLabel` and the hub's local filtering. Extracting a value from a document must not become a way around the document's access rules.
+3. **No extraction from encrypted documents.** Observations are only available for documents the hub can read in plaintext. Documents exchanged under [end-to-end encryption](end-to-end-encryption.html) yield no observations.
+4. **Only current documents.** A hub **SHALL** only return observations whose source `DocumentReference.status` is `current`. When a report is replaced (`relatesTo.code = replaces`), the observations of the replaced report disappear from the results. Without this rule, a final report replacing a preliminary one would put both values on the trend curve. Observations with status `entered-in-error` are never returned.
+5. **Consistent routing.** `extension[homeCommunityId]` **SHALL** equal the `homeCommunityId` of the source `DocumentReference`.
+
+---
+
+### 4.5 HTTP Interaction & Query Parameters
+
+```http
+POST [base]/Observation/_search HTTP/1.1
+Host: hub.cozo.be
+Content-Type: application/x-www-form-urlencoded
+Accept: application/fhir+json; fhirVersion=4.0
+Authorization: Bearer <calling-hub-token>
+
+patient.identifier=https%3A%2F%2Fwww.ehealth.fgov.be%2Fstandards%2Ffhir%2Fcore%2FNamingSystem%2Fssin%7C79080412345&code=http%3A%2F%2Floinc.org%7C1558-6&date=ge2025-01-01&_count=50&_sort=-date
+```
+
+| Parameter | Type | Cardinality | Description |
+| :--- | :--- | :--- | :--- |
+| **`patient.identifier`** | `token` | **1..1** | Patient SSIN / INSZ, same syntax as `getTransactionList`. Matched against `Observation.subject.identifier`; the responder does not resolve a Patient resource. |
+| **`code`** | `token` | **1..*** | One or more LOINC codes (`http://loinc.org\|1558-6`, comma-separated for several). Mandatory: the transaction serves analyte trends, not a dump of every lab result of a patient. |
+| **`date`** | `date` | 0..2 | Range on `effective[x]` with FHIR prefixes (`ge`, `le`, `gt`, `lt`). |
+| **`category`** | `token` | 0..1 | `http://terminology.hl7.org/CodeSystem/observation-category\|laboratory`. Accepted for IHE QEDm compatibility; every result on this endpoint is a laboratory result. |
+| **`searchtype`** | `token` | 0..1 | `federated` (default) or `local`, as in [§2.2](#22-http-interaction--query-parameters-post-based-search). |
+| **`_count`** | `number` | 0..1 | Page size. |
+| **`_sort`** | `string` | 0..1 | `-date` (default, newest first) or `date`. |
+
+Partial failures of downstream sources are reported exactly as for `getTransactionList` ([§2.4](#24-downstream-system-unavailability-partial-failures--operationoutcome-handling)).
+
+---
+
+### 4.6 Federated Query Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Clinician as Clinician / EHR User
+    participant App as Clinical App (EHR / Portal)
+    participant InitHub as Initiating eHealth Hub
+    participant Metahub as National Metahub
+    participant RespHub1 as Responding Hub A (CoZo)
+    participant RespHub2 as Responding Hub B (RSW)
+
+    Clinician->>App: Request Fasting Glucose trend (LOINC 1558-6)
+    App->>InitHub: Intrahub Observation Query (out of scope)
+    InitHub->>Metahub: Query hubs holding data for patient
+    Metahub-->>InitHub: Hub A, Hub B
+
+    par Hub A
+        InitHub->>RespHub1: POST /Observation/_search (patient.identifier, code=1558-6)
+        RespHub1-->>InitHub: 200 OK searchset (3 observations)
+    and Hub B
+        InitHub->>RespHub2: POST /Observation/_search (patient.identifier, code=1558-6)
+        RespHub2-->>InitHub: 200 OK searchset (1 observation + OperationOutcome warning)
+    end
+
+    Note over InitHub: Check subject.identifier = queried SSIN,<br/>merge, sort by date, keep partial-failure warnings
+    InitHub-->>App: Aggregated timeline
+    App-->>Clinician: Trend curve
+
+    Clinician->>App: Open the report behind one value
+    App->>InitHub: Intrahub retrieval (out of scope)
+    InitHub->>RespHub1: POST /DocumentReference/$retrieve-document<br/>(identifier = derivedFrom.identifier, hub = homeCommunityId)
+    RespHub1-->>InitHub: 200 OK BeInterhubDocumentBundle
+```
+
+---
+
+### 4.7 Wire Example: Response Searchset Bundle
+
+Abridged to one of the two matches. The complete, validated response is the example `BundleLabObservationSearchsetExample`.
+
+```json
+{
+  "resourceType": "Bundle",
+  "type": "searchset",
+  "total": 2,
+  "entry": [
+    {
+      "fullUrl": "https://hub.cozo.be/fhir/Observation/InterhubObsGlucoseDiscreteExample",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "InterhubObsGlucoseDiscreteExample",
+        "meta": {
+          "profile": [ "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-lab-observation" ]
+        },
+        "extension": [ {
+          "url": "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-ext-home-community-id",
+          "valueUri": "urn:oid:1.3.6.1.4.1.21297.1.3"
+        } ],
+        "status": "final",
+        "category": [ {
+          "coding": [ { "system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "laboratory" } ]
+        } ],
+        "code": {
+          "coding": [ { "system": "http://loinc.org", "code": "1558-6", "display": "Fasting glucose [Mass/volume] in Serum or Plasma" } ]
+        },
+        "subject": {
+          "identifier": { "system": "https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin", "value": "79080412345" },
+          "display": "Jan Peeters"
+        },
+        "effectiveDateTime": "2026-03-15T08:15:00Z",
+        "performer": [ {
+          "extension": [ {
+            "url": "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-ext-hcparty-type",
+            "valueCoding": { "system": "https://www.ehealth.fgov.be/standards/fhir/core/CodeSystem/cd-hcparty", "code": "orghospital", "display": "hospital" }
+          } ],
+          "identifier": { "system": "https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/nihdi", "value": "71000012" },
+          "display": "UZ Leuven"
+        } ],
+        "valueQuantity": { "value": 92, "unit": "mg/dL", "system": "http://unitsofmeasure.org", "code": "mg/dL" },
+        "referenceRange": [ {
+          "low": { "value": 70, "unit": "mg/dL", "system": "http://unitsofmeasure.org", "code": "mg/dL" },
+          "high": { "value": 99, "unit": "mg/dL", "system": "http://unitsofmeasure.org", "code": "mg/dL" }
+        } ],
+        "derivedFrom": [ {
+          "identifier": { "system": "urn:ietf:rfc:3986", "value": "urn:oid:1.3.6.1.4.1.21297.100.2.1.815933567" },
+          "display": "Biochemistry & Hematology Laboratory Report (2026-03-15)"
+        } ]
+      },
+      "search": { "mode": "match" }
+    },
+    {
+      "fullUrl": "urn:uuid:6a28746c-63cf-4a69-8db3-705a5a1f26f2",
+      "resource": {
+        "resourceType": "OperationOutcome",
+        "issue": [ {
+          "severity": "warning",
+          "code": "timeout",
+          "diagnostics": "Timeout communicating with connected laboratory repository (NIHDI: 71000012). Results from this facility may be incomplete or omitted from this list."
+        } ]
+      },
+      "search": { "mode": "outcome" }
+    }
+  ]
+}
+```
+
+---
+
+### 4.8 Relationship to IHE QEDm and IHE mXDE
+
+Transaction 3 does not reinvent anything. It reuses two IHE profiles, and keeps them no more complex than the Interhub needs.
+
+* **[IHE QEDm](https://profiles.ihe.net/PCC/QEDm/) (Query for Existing Data for Mobile), transaction PCC-44.** This is the IHE transaction for querying `Observation` resources by patient, category, code and date. Transaction 3 is PCC-44 with the Belgian Interhub adaptations.
+* **[IHE mXDE](https://profiles.ihe.net/ITI/mXDE/) (Mobile Cross-Enterprise Document Data Element Extraction).** mXDE describes exactly this situation: data elements extracted from shared documents, each traceable to its source document. mXDE records that link in a separate **Provenance** resource ([`IHE.ITI.mXDE.Provenance`](https://profiles.ihe.net/ITI/mXDE/StructureDefinition-IHE.ITI.mXDE.Provenance.html)), retrieved with `_revinclude=Provenance:target`. The Interhub carries the same link **on the Observation itself**, in `derivedFrom`, so no additional resource, endpoint or include parameter is needed.
+
+| IHE mXDE Provenance | `BeInterhubLabObservation` |
+| :--- | :--- |
+| `target` (the extracted resources) | The Observation itself |
+| `entity.role = source`, `entity.what` = the source `DocumentReference` | `derivedFrom`, logical reference by document uniqueId |
+| `activity = Derivation` | Meaning of `derivedFrom` ("the resource this observation value is derived from") |
+| `agent[assembler]` (the extracting system) | `extension[homeCommunityId]` (the hub holding the document and serving its observations) |
+| `recorded` | `meta.lastUpdated` |
+| `policy = urn:ihe:iti:mxde:2023:document-provenance-policy` | `meta.profile` = this profile |
+
+| IHE QEDm PCC-44 | Belgian Interhub |
+| :--- | :--- |
+| `GET [base]/Observation?...` | `POST [base]/Observation/_search` (POST-everywhere privacy rule) |
+| `patient` as a reference to a Patient resource | `patient.identifier` (SSIN); no Patient endpoint |
+| `patient` + `category` is a required combination | `code` is mandatory; patient-wide lab queries are not offered |
+| Provenance Option (`_revinclude=Provenance:target`) | Not used; `derivedFrom` is inline |
+
+What the Interhub adds: mXDE leaves document replacement and access control to the implementer, and its own security considerations warn that extracted data can escape document-level restrictions. Responder rules 2 to 4 in [§4.4](#44-responder-rules) close that gap.
+
+This transaction is **aligned with** QEDm and mXDE, not claimed as conformant. A hub that also implements mXDE internally may keep producing Provenance resources, but Interhub consumers **SHALL NOT** depend on them.
+
+---
+
+## 5. Error Codes & Exception Crosswalk
+
+### 5.1 How the legacy protocol reports failure
 
 KMEHR hub services do not signal application errors with SOAP faults. Every response carries an `acknowledge` element, and **that** is where success and failure live:
 
@@ -821,7 +1080,7 @@ The FHIR mapping follows directly, and it is the same mechanism as [§2.4](#24-d
 
 Preserving `error/cd` verbatim matters: Belgian hub error codes are structured (`VZN.0.SYS.MH.X` names the subsystem that failed) and existing support processes are built on them. A gateway that collapses them into a generic FHIR issue code destroys the only diagnostic signal the service desk has.
 
-### 4.2 Condition to HTTP status crosswalk
+### 5.2 Condition to HTTP status crosswalk
 
 | Condition | HTTP Status | FHIR `OperationOutcome.issue.code` | Remediation / Clinical Context |
 | :--- | :--- | :--- | :--- |

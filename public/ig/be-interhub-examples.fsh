@@ -562,3 +562,63 @@ Usage: #example
 * entry[2].fullUrl = "urn:uuid:6a28746c-63cf-4a69-8db3-705a5a1f26f2"
 * entry[2].resource = OutcomePartialFailureExample
 * entry[2].search.mode = #outcome
+
+// =========================================================================
+// LABORATORY OBSERVATION SEARCH EXAMPLES (BeInterhubLabObservation)
+// =========================================================================
+
+// Shared by both results: same patient, laboratory and source document
+RuleSet: LabObservationFromLabReport
+* extension[homeCommunityId].valueUri = "urn:oid:1.3.6.1.4.1.21297.1.3"
+* status = #final
+* category[laboratory] = $OBS-CATEGORY#laboratory "Laboratory"
+* subject.identifier.system = $BE-NS-SSIN
+* subject.identifier.value = "79080412345"
+* subject.display = "Jan Peeters"
+* effectiveDateTime = "2026-03-15T08:15:00Z"
+* performer[0].identifier.system = $BE-NS-NIHDI
+* performer[0].identifier.value = "71000012"
+* performer[0].display = "UZ Leuven"
+* performer[0].extension[hcPartyType].valueCoding = $BE-CS-CD-HCPARTY#orghospital "hospital"
+* derivedFrom.identifier.system = "urn:ietf:rfc:3986"
+* derivedFrom.identifier.value = "urn:oid:1.3.6.1.4.1.21297.100.2.1.815933567"
+* derivedFrom.display = "Biochemistry & Hematology Laboratory Report (2026-03-15)"
+
+Instance: InterhubObsGlucoseDiscreteExample
+InstanceOf: BeInterhubLabObservation
+Title: "Interhub Lab Observation: Fasting Blood Glucose"
+Description: "Fasting glucose result extracted from the laboratory report DocRefLabReportExample, as returned by the Interhub lab observation search. Patient, performer and source document are logical references by business identifier."
+Usage: #example
+* insert LabObservationFromLabReport
+* code.coding[loinc] = $LNC#1558-6 "Fasting glucose [Mass/volume] in Serum or Plasma"
+* valueQuantity = 92 'mg/dL' "mg/dL"
+* referenceRange[0].low = 70 'mg/dL' "mg/dL"
+* referenceRange[0].high = 99 'mg/dL' "mg/dL"
+
+Instance: InterhubObsCreatinineDiscreteExample
+InstanceOf: BeInterhubLabObservation
+Title: "Interhub Lab Observation: Serum Creatinine"
+Description: "Serum creatinine result extracted from the laboratory report DocRefLabReportExample, as returned by the Interhub lab observation search. Patient, performer and source document are logical references by business identifier."
+Usage: #example
+* insert LabObservationFromLabReport
+* code.coding[loinc] = $LNC#2160-0 "Creatinine [Mass/volume] in Serum or Plasma"
+* valueQuantity = 0.95 'mg/dL' "mg/dL"
+* referenceRange[0].low = 0.70 'mg/dL' "mg/dL"
+* referenceRange[0].high = 1.20 'mg/dL' "mg/dL"
+
+Instance: BundleLabObservationSearchsetExample
+InstanceOf: Bundle
+Title: "Searchset Bundle: Lab Observation Search Response"
+Description: "Example searchset Bundle returned by POST Observation/_search for patient SSIN 79080412345 and LOINC 1558-6 / 2160-0. Contains BeInterhubLabObservation entries alongside a partial-failure OperationOutcome from an unavailable downstream repository."
+Usage: #example
+* type = #searchset
+* total = 2
+* entry[0].fullUrl = "https://hub.cozo.be/fhir/Observation/InterhubObsGlucoseDiscreteExample"
+* entry[0].resource = InterhubObsGlucoseDiscreteExample
+* entry[0].search.mode = #match
+* entry[1].fullUrl = "https://hub.cozo.be/fhir/Observation/InterhubObsCreatinineDiscreteExample"
+* entry[1].resource = InterhubObsCreatinineDiscreteExample
+* entry[1].search.mode = #match
+* entry[2].fullUrl = "urn:uuid:6a28746c-63cf-4a69-8db3-705a5a1f26f2"
+* entry[2].resource = OutcomePartialFailureExample
+* entry[2].search.mode = #outcome

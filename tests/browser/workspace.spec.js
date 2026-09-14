@@ -181,3 +181,29 @@ test("live Java search and retrieval through local proxy", async ({ page }) => {
   await page.getByRole("button", { name: "View PDF", exact: true }).click();
   await expect(page.locator(".pdf-preview")).toBeVisible();
 });
+
+test("Transaction 3: lab observation search, discrete values, and provenance", async ({
+  page,
+}) => {
+  await page.goto("/#observations");
+  await expect(page.locator(".doc-row")).toHaveCount(1);
+  await expect(page.locator(".doc-title").first()).toContainText("Fasting glucose");
+  await expect(page.locator(".doc-description").first()).toContainText("92 mg/dL");
+
+  // Click Serum Creatinine preset
+  await page.getByRole("button", { name: /Serum Creatinine/ }).click();
+  await expect(page.locator(".doc-row")).toHaveCount(1);
+  await expect(page.locator(".doc-title").first()).toContainText("Creatinine");
+
+  // Click Both preset
+  await page.getByRole("button", { name: "Glucose + Creatinine" }).click();
+  await expect(page.locator(".doc-row")).toHaveCount(2);
+
+  // Inspect detail tabs
+  await page.getByRole("tab", { name: /Provenance/ }).click();
+  await expect(page.locator(".tab-content")).toContainText("Source document uniqueId");
+
+  await page.getByRole("tab", { name: /Structural checks/ }).click();
+  await expect(page.locator(".checks-table")).toBeVisible();
+  await expect(page.locator(".checks-table tr.fail")).toHaveCount(0);
+});

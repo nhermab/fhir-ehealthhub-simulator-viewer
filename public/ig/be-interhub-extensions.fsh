@@ -38,6 +38,8 @@ Description: "Specifies the Home Community ID (as an OID URN, e.g. urn:oid:1.3.6
 * ^context[0].expression = "DocumentReference"
 * ^context[1].type = #element
 * ^context[1].expression = "Bundle"
+* ^context[2].type = #element
+* ^context[2].expression = "Observation"
 * value[x] only uri or Identifier
 * value[x] 1..1
 
@@ -108,6 +110,8 @@ Description: "Declares the KMEHR CD-HCPARTY type of a party referenced from the 
 * ^context[4].expression = "Composition.attester.party"
 * ^context[5].type = #element
 * ^context[5].expression = "Composition.custodian"
+* ^context[6].type = #element
+* ^context[6].expression = "Observation.performer"
 * value[x] only Coding
 * value[x] 1..1
 * valueCoding from $BE-VS-CD-HCPARTY (extensible)

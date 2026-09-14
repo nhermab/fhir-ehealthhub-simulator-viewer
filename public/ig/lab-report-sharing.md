@@ -385,6 +385,67 @@ Below is a complete, valid example of a shared Laboratory Report FHIR Document B
 
 ---
 
+## 6. Individual Lab Results: The Laboratory Observation Search (Transaction 3)
+
+### 6.1 Two Ways to Reach the Same Result
+
+The same laboratory report can be reached in two ways across the federation:
+
+1. **The document** (Transactions 1 & 2): `BeInterhubDocumentReference` and `BeInterhubDocumentBundle`, rooted in `BeInterhubLabComposition`. This is the legal, immutable report, with narrative, specimen, requesting physician, biologist validation and conclusion.
+2. **The individual results** (Transaction 3): `BeInterhubLabObservation`, returned by `POST [base]/Observation/_search` with `patient.identifier` (SSIN) and `code` (LOINC, e.g. `1558-6`). This serves trend curves and follow-up across reports, laboratories and hubs, without downloading every document.
+
+The result is never a replacement for the report: every observation points to the report it was extracted from. The normative specification is [Transactions §4](transactions.html#4-transaction-3-laboratory-observation-search-digirelab).
+
+---
+
+### 6.2 How an Observation Relates to Its Report
+
+Every result extracted from the report of [§5](#5-complete-json-document-walkthrough) is returned with **logical references only**: business identifiers that say *who* or *what* is meant, with no URL to fetch. The responding hub therefore needs no Patient, Practitioner or Organization endpoint.
+
+```mermaid
+flowchart LR
+    subgraph Query["<b>Transaction 3</b>"]
+        direction TB
+        Q["<b>POST /Observation/_search</b><br/>• patient.identifier = SSIN 79080412345<br/>• code = LOINC 1558-6"]
+    end
+
+    subgraph Obs["<b>BeInterhubLabObservation</b>"]
+        direction TB
+        O["• value: 92 mg/dL (ref 70-99)<br/>• subject.identifier: SSIN 79080412345<br/>• performer.identifier: NIHDI 71000012<br/>• derivedFrom.identifier: urn:oid:...815933567<br/>• homeCommunityId: urn:oid:...21297.1.3 (CoZo)"]
+    end
+
+    subgraph DocRef["<b>BeInterhubDocumentReference</b>"]
+        direction TB
+        DR["• masterIdentifier: urn:oid:...815933567<br/>• homeCommunityId: urn:oid:...21297.1.3<br/>• status: current"]
+    end
+
+    subgraph FullDoc["<b>BeInterhubDocumentBundle</b>"]
+        direction TB
+        Payload["• Narrative sections<br/>• DiagnosticReport & specimen<br/>• Biologist validation"]
+    end
+
+    Query --> Obs
+    Obs -->|"derivedFrom.identifier = masterIdentifier"| DR
+    DR -->|"$retrieve-document at the hub named by homeCommunityId"| FullDoc
+```
+
+What a hub does when extracting a result from this report:
+
+| Observation element | Taken from the report |
+| :--- | :--- |
+| `code`, `value[x]`, `interpretation`, `referenceRange`, `effective[x]`, `note` | The `Observation` entry in the document bundle, unchanged |
+| `category` | `observation-category#laboratory` (a `v2-0074#LAB` coding in the source may be kept alongside) |
+| `subject.identifier` | The patient SSIN (`DocumentReference.subject.identifier`) |
+| `performer.identifier` | NIHDI / CBE number of the laboratory or biologist in the source `Observation.performer` |
+| `derivedFrom.identifier` | `DocumentReference.masterIdentifier` |
+| `extension[homeCommunityId]` | `DocumentReference.extension[homeCommunityId]` |
+
+The result is only available while the report is: same access decision, only `current` documents, and nothing extracted from end-to-end encrypted documents ([Transactions §4.4](transactions.html#44-responder-rules)). The link from result to report plays the role of the source-document Provenance of [IHE mXDE](https://profiles.ihe.net/ITI/mXDE/), carried inline instead of as a separate resource ([Transactions §4.8](transactions.html#48-relationship-to-ihe-qedm-and-ihe-mxde)).
+
+The complete searchset response for this report is shown in [Transactions §4.7](transactions.html#47-wire-example-response-searchset-bundle) and as the example `BundleLabObservationSearchsetExample`.
+
+---
+
 ## Continue reading
 
 * **Previous:** [End-to-End Encryption](end-to-end-encryption.html) — whether this payload travels in plaintext (Tier 1) or encrypted (Tier 2).

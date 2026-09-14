@@ -11,7 +11,7 @@ cd fhir-ehealthhub-simulator-viewer
 npm start
 ```
 
-Open **http://localhost:4173**. The initial demo search uses synthetic SSIN `79080412345` and four copied DocumentReference fixtures. Demo mode works without Java or network access, and mirrors the simulator wire-for-wire: the same two transactions, the same 400/404/406/410 responses, the same opaque paging, and the same `not-supported` refusal for any other path. The bundled Minimal reference intentionally has no retrievable payload (404) and no hub PDF rendering (406).
+Open **http://localhost:4173**. The initial demo search uses synthetic SSIN `79080412345` and four copied DocumentReference fixtures. Demo mode works without Java or network access, and mirrors the simulator wire-for-wire: the same three transactions, the same 400/404/406/410 responses, the same opaque paging, and the same `not-supported` refusal for any other path. The bundled Minimal reference intentionally has no retrievable payload (404) and no hub PDF rendering (406).
 
 To use the Java app, start it separately, open **Connections**, select **Live**, use `http://localhost:8080/fhir`, keep **Local proxy**, and save. Then run a document search. **Test connection** uses the saved settings.
 
@@ -26,6 +26,7 @@ Origins are an exact server-side allowlist. The client can configure endpoints w
 ## Workspace
 
 - Document discovery via ITI-67 POST form search; canonical and OID SSIN systems; optional modulo-97 validation; category/type tokens, repeated date bounds, authors, status, IDs, identifiers, local/federated scope, ordering and count.
+- Laboratory observation search via Transaction 3 (DIGIRELAB / IHE QEDm PCC-44): POST form query to `[base]/Observation/_search` by patient SSIN and LOINC analyte codes (e.g. Fasting Glucose `1558-6`, Serum Creatinine `2160-0`). Displays discrete quantitative values with UCUM units, reference ranges, performing laboratory, and inline traceability (`derivedFrom`) linking directly to `$retrieve-document` on the legal source report.
 - Searchset pagination using next-link query parameters in a new POST to `_search`. The simulator issues an **opaque `_continuation` token** in `Bundle.link[relation=next]`, so the search criteria never travel in a URL; the viewer simply replays whatever parameters that link carries, which also works with other servers' opaque continuation schemes.
 - Separate partial-failure OperationOutcome notices preserve successful documents. Details retain Belgian error codings in the inspector and traffic trace.
 - Minimal and Comprehensive metadata: contained patient/parties, CD-HCPARTY roles, confidentiality, patient access, home community, source record time, ETK metadata, identifiers and replacement relationships.

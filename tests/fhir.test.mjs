@@ -5,11 +5,13 @@ import {
   SSIN,
   SSIN_OID,
   searchParams,
+  observationSearchParams,
   retrieveBody,
   validateSsin,
   validateResource,
   splitSearch,
   filterFixtures,
+  filterObservationFixtures,
   redactHeaders,
   curlCommand,
 } from "../src/fhir.js";
@@ -173,4 +175,80 @@ test("document Bundle checks detect broken closure and Composition ordering", as
       (c) => !c.pass && c.path.endsWith("subject.reference"),
     ),
   );
+});
+
+test("observationSearchParams validates mandatory code and builds URLSearchParams", () => {
+  const p = observationSearchParams({
+    patient: "79080412345",
+    code: "1558-6",
+    from: "2026-01-01",
+    to: "2026-12-31",
+    searchtype: "federated",
+  });
+  assert.equal(p.get("patient.identifier"), SSIN + "|79080412345");
+  assert.equal(p.get("code"), "1558-6");
+  assert.deepEqual(p.getAll("date"), ["ge2026-01-01", "le2026-12-31"]);
+  assert.equal(p.get("searchtype"), "federated");
+
+  assert.throws(() => observationSearchParams({ patient: "79080412345", code: "" }));
+  assert.throws(() => observationSearchParams({ patient: "bad", code: "1558-6" }));
+});
+
+test("validateResource checks BeInterhubLabObservation structural rules and prohibited elements", async () => {
+  const obs = JSON.parse(
+    await readFile(
+      new URL(
+        "../public/fixtures/resources/Observation-InterhubObsGlucoseDiscreteExample.json",
+        import.meta.url,
+      ),
+    ),
+  );
+  const checks = validateResource(obs);
+  assert.ok(checks.length > 5);
+  assert.ok(checks.every((c) => c.pass), "Valid lab observation passes all structural checks");
+
+  // Prohibited elements check
+  const badObs = structuredClone(obs);
+  badObs.hasMember = [{ reference: "Observation/other" }];
+  const badChecks = validateResource(badObs);
+  assert.equal(badChecks.find((c) => c.path === "hasMember").pass, false);
+});
+
+test("filterObservationFixtures filters observations by code, SSIN, and date", async () => {
+  const glucose = JSON.parse(
+    await readFile(
+      new URL(
+        "../public/fixtures/resources/Observation-InterhubObsGlucoseDiscreteExample.json",
+        import.meta.url,
+      ),
+    ),
+  );
+  const creatinine = JSON.parse(
+    await readFile(
+      new URL(
+        "../public/fixtures/resources/Observation-InterhubObsCreatinineDiscreteExample.json",
+        import.meta.url,
+      ),
+    ),
+  );
+  const all = [glucose, creatinine];
+
+  const filteredGlucose = filterObservationFixtures(all, new URLSearchParams({
+    "patient.identifier": "79080412345",
+    code: "1558-6",
+  }));
+  assert.equal(filteredGlucose.length, 1);
+  assert.equal(filteredGlucose[0].id, "InterhubObsGlucoseDiscreteExample");
+
+  const filteredBoth = filterObservationFixtures(all, new URLSearchParams({
+    "patient.identifier": "79080412345",
+    code: "1558-6,2160-0",
+  }));
+  assert.equal(filteredBoth.length, 2);
+
+  const filteredNone = filterObservationFixtures(all, new URLSearchParams({
+    "patient.identifier": "79080412345",
+    code: "9999-9",
+  }));
+  assert.equal(filteredNone.length, 0);
 });

@@ -1,5 +1,6 @@
 import {
   filterFixtures,
+  filterObservationFixtures,
   outcome,
   redactHeaders,
   SSIN,
@@ -38,6 +39,15 @@ export async function demoData() {
     ].map((id) =>
       fixture("document-references/DocumentReference-" + id + ".json"),
     ),
+  ));
+}
+let cachedObs;
+export async function demoObservations() {
+  return (cachedObs ||= Promise.all(
+    [
+      "Observation-InterhubObsGlucoseDiscreteExample.json",
+      "Observation-InterhubObsCreatinineDiscreteExample.json",
+    ].map((f) => fixture("resources/" + f)),
   ));
 }
 export function targetUrl(base, path) {
@@ -175,9 +185,10 @@ function redactedResponse(headers) {
  * contract, so anything the live simulator refuses is refused here too.
  */
 export const UNSUPPORTED_INTERACTION =
-  "This Belgian Interhub responder serves exactly two transactions: getTransactionList — " +
-  "POST [base]/DocumentReference/_search (MHD ITI-67), and getTransaction — " +
-  "POST [base]/DocumentReference/$retrieve-document. GET [base]/metadata returns the " +
+  "This Belgian Interhub responder serves exactly three transactions: getTransactionList — " +
+  "POST [base]/DocumentReference/_search (MHD ITI-67), getTransaction — " +
+  "POST [base]/DocumentReference/$retrieve-document, and laboratory observation search — " +
+  "POST [base]/Observation/_search. GET [base]/metadata returns the " +
   "CapabilityStatement. No other path, resource type or interaction is available.";
 const PDF_RENDERINGS = {
   DocRefLabReportContainedExample: "rendered-lab-report-example-01.pdf",
@@ -396,6 +407,131 @@ export async function demoRequest(path, request, settings) {
         404,
       );
     return json(await fixture("document-bundles/Bundle-" + payload + ".json"));
+  }
+  if (route === "Observation/_search") {
+    if (wantsPdf())
+      return json(
+        outcome(
+          "not-supported",
+          "Laboratory observation search answers a FHIR searchset Bundle. application/pdf is only available on $retrieve-document.",
+        ),
+        406,
+      );
+    let p = new URLSearchParams(request.body);
+    if (p.get("_continuation")) {
+      p = decodeContinuation(p.get("_continuation"));
+      if (!p)
+        return json(
+          outcome(
+            "value",
+            "The supplied _continuation token is unknown or expired. Re-run the original POST /Observation/_search query to obtain a fresh result set.",
+          ),
+          400,
+        );
+    }
+    const identifier = p.get("patient.identifier");
+    if (!identifier)
+      return json(
+        outcome("required", "Mandatory patient.identifier is missing."),
+        400,
+      );
+    const parts = identifier.split("|");
+    if (parts.length > 1 && ![SSIN, SSIN_OID].includes(parts[0]))
+      return json(
+        outcome(
+          "value",
+          "Unsupported patient identifier system '" + parts[0] + "'.",
+        ),
+        400,
+      );
+    const valid = validateSsin(parts.at(-1), settings.strictSsin);
+    if (!valid.valid) return json(outcome("value", valid.message), 400);
+
+    const code = p.get("code");
+    if (!code || !code.trim())
+      return json(
+        outcome(
+          "required",
+          "Transaction 3 mandates 'code' specifying one or more LOINC analyte codes.",
+        ),
+        400,
+      );
+
+    const scope = p.get("searchtype") || "federated";
+    if (!["local", "federated"].includes(scope))
+      return json(
+        outcome(
+          "value",
+          "Unsupported searchtype '" + scope + "'. Use 'local' or 'federated'.",
+        ),
+        400,
+      );
+    if (p.get("_sort") && !["date", "-date"].includes(p.get("_sort")))
+      return json(
+        outcome(
+          "value",
+          "Unsupported _sort '" +
+            p.get("_sort") +
+            "'. Interhub defines -date (default) and date.",
+        ),
+        400,
+      );
+
+    p.set(
+      "patient.identifier",
+      parts.length > 1 ? parts[0] + "|" + valid.normalized : valid.normalized,
+    );
+
+    const observations = await demoObservations();
+    const all = filterObservationFixtures(observations, p),
+      count = Math.max(1, Math.min(200, Number(p.get("_count")) || 20)),
+      offset = Number(p.get("_offset")) || 0;
+    const page = all.slice(offset, offset + count);
+    const entry = page.map((resource) => ({
+      fullUrl: settings.base + "/Observation/" + resource.id,
+      resource,
+      search: { mode: "match" },
+    }));
+
+    if (settings.partial && scope !== "local")
+      entry.push({
+        resource: await fixture(
+          "operation-outcomes/OperationOutcome-OutcomePartialFailureExample.json",
+        ),
+        search: { mode: "outcome" },
+      });
+
+    const link = [
+      { relation: "self", url: settings.base + "/Observation/_search" },
+    ];
+    if (offset + page.length < all.length) {
+      const nextParams = new URLSearchParams(p);
+      nextParams.set("_offset", offset + page.length);
+      link.push({
+        relation: "next",
+        url:
+          settings.base +
+          "/Observation/_search?_continuation=" +
+          encodeContinuation(nextParams),
+      });
+    }
+    return json({
+      resourceType: "Bundle",
+      type: "searchset",
+      timestamp: new Date().toISOString(),
+      total: all.length,
+      link,
+      entry,
+    });
+  }
+  if (route === "Observation") {
+    return json(
+      outcome(
+        "not-supported",
+        "HTTP method not allowed on this endpoint; use POST to [base]/Observation/_search",
+      ),
+      405,
+    );
   }
   return unsupported();
 }

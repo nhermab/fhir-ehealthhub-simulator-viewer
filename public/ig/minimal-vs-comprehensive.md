@@ -82,7 +82,7 @@ flowchart TD
 ### 3.1 The Multi-Author Challenge
 * **The Federal Limitation**: The Belgian federal core profile `BeDocumentReference` (`hl7.fhir.be.core`) caps `author` at `1..1`.
 * **The Interhub Reality**: A Belgian hospital document involves multiple authoring entities:
-  1. The **Answering Regional Hub** (e.g. CoZo, RSW, BHN).
+  1. The **Answering Regional Hub** (e.g. CoZo, RSW, Abrumet+).
   2. The **Originating Institution** (e.g. UZ Leuven, Grand Hôpital de Charleroi).
   3. The **Clinical Department** (e.g. Clinical Biology, Cardiology).
   4. The **Authoring Physician** (e.g. Dr. Govaerts).

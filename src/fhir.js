@@ -5,6 +5,10 @@ export const EXT =
   "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-ext-";
 export const CATEGORY =
   "https://www.ehealth.fgov.be/standards/fhir/core/CodeSystem/cd-transaction";
+export const LAB_OBSERVATION_PROFILE =
+  "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-lab-observation";
+export const LOINC_SYSTEM = "http://loinc.org";
+export const UCUM_SYSTEM = "http://unitsofmeasure.org";
 export const pretty = (x) => JSON.stringify(x, null, 2);
 export const extension = (r, name) =>
   r?.extension?.find((e) => e.url === EXT + name);
@@ -93,6 +97,23 @@ export function searchParams(f, strict = false) {
   if (f.to) p.append("date", "le" + f.to);
   return p;
 }
+export function observationSearchParams(f, strict = false) {
+  const ssin = validateSsin(f.patient, strict);
+  if (!ssin.valid) throw Error(ssin.message);
+  if (!f.code || !f.code.trim())
+    throw Error("Enter at least one LOINC analyte code (e.g. 1558-6 or http://loinc.org|1558-6).");
+  if (f.from && f.to && f.from > f.to)
+    throw Error("Start date must be before end date.");
+  const p = new URLSearchParams({
+    "patient.identifier": `${f.system || SSIN}|${ssin.normalized}`,
+    code: f.code.trim(),
+  });
+  for (const key of ["category", "searchtype", "_sort", "_count"])
+    if (f[key]) p.set(key, f[key]);
+  if (f.from) p.append("date", "ge" + f.from);
+  if (f.to) p.append("date", "le" + f.to);
+  return p;
+}
 export const retrieveBody = (ref) => ({
   resourceType: "Parameters",
   parameter: [
@@ -117,6 +138,13 @@ export function splitSearch(bundle) {
       .filter(
         (e) =>
           e.resource?.resourceType === "DocumentReference" &&
+          e.search?.mode !== "outcome",
+      )
+      .map((e) => e.resource),
+    observations: (bundle.entry || [])
+      .filter(
+        (e) =>
+          e.resource?.resourceType === "Observation" &&
           e.search?.mode !== "outcome",
       )
       .map((e) => e.resource),
@@ -284,6 +312,91 @@ export function validateResource(r) {
     };
     for (const [i, e] of (r.entry || []).entries())
       walk(e.resource, e.resource, `entry[${i}].resource`);
+  } else if (r?.resourceType === "Observation") {
+    add(
+      "meta.profile",
+      r.meta?.profile?.some((p) => p.endsWith("/be-interhub-lab-observation")),
+      "Conforms to BeInterhubLabObservation profile",
+    );
+    add(
+      "status",
+      ["final", "amended", "corrected", "preliminary"].includes(r.status),
+      "Observation status (entered-in-error is prohibited)",
+    );
+    add(
+      "category",
+      r.category?.some((cat) =>
+        cat.coding?.some((c) => c.code === "laboratory"),
+      ),
+      "Fixed HL7 observation category 'laboratory'",
+    );
+    add(
+      "code.coding[loinc]",
+      r.code?.coding?.some((c) => c.system === "http://loinc.org" && c.code),
+      "LOINC analyte code",
+    );
+    add(
+      "subject.identifier",
+      r.subject?.identifier?.system === SSIN && r.subject?.identifier?.value,
+      "Logical reference to patient by national SSIN",
+    );
+    add(
+      "performer[0].identifier",
+      r.performer?.length &&
+        r.performer.some((p) => p.identifier?.value && !p.reference),
+      "Logical reference to performing laboratory by NIHDI/CBE",
+    );
+    add(
+      "derivedFrom[0].identifier",
+      r.derivedFrom?.length === 1 &&
+        r.derivedFrom[0].identifier?.system === "urn:ietf:rfc:3986" &&
+        r.derivedFrom[0].identifier?.value &&
+        !r.derivedFrom[0].reference,
+      "Logical reference to source document uniqueId (RFC 3986)",
+    );
+    const home = extension(r, "home-community-id");
+    add(
+      "extension.homeCommunityId",
+      home?.valueUri || home?.valueIdentifier?.value,
+      "Required homeCommunityId routing extension",
+    );
+    add(
+      "effective[x]",
+      r.effectiveDateTime || r.effectivePeriod,
+      "Clinically relevant effective time",
+    );
+    add(
+      "value[x]",
+      (r.valueQuantity && r.valueQuantity.value !== undefined) ||
+        r.valueString ||
+        r.valueCodeableConcept ||
+        r.dataAbsentReason,
+      "Observation result value or dataAbsentReason",
+    );
+    if (r.valueQuantity) {
+      add(
+        "valueQuantity.system",
+        r.valueQuantity.system === "http://unitsofmeasure.org",
+        "UCUM unit system for quantitative values",
+      );
+    }
+    const prohibited = [
+      "basedOn",
+      "partOf",
+      "focus",
+      "encounter",
+      "specimen",
+      "device",
+      "hasMember",
+      "contained",
+    ];
+    for (const p of prohibited) {
+      add(
+        p,
+        !r[p] || (Array.isArray(r[p]) && r[p].length === 0),
+        `Prohibited element '${p}' is absent`,
+      );
+    }
   }
   return checks;
 }
@@ -350,6 +463,54 @@ export function filterFixtures(docs, p) {
   list.sort(
     (a, b) =>
       (a.date || "").localeCompare(b.date || "") *
+      (p.get("_sort") === "date" ? 1 : -1),
+  );
+  return list;
+}
+export function filterObservationFixtures(obsList, p) {
+  let list = obsList.filter((obs) => {
+    const raw = p.get("patient.identifier") || "",
+      parts = raw.split("|");
+    if (parts.length > 1 && ![SSIN, SSIN_OID].includes(parts[0])) return false;
+    if (obs.subject?.identifier?.value !== parts.at(-1)) return false;
+    if (
+      p.get("category") &&
+      !tokenMatch(
+        p.get("category"),
+        obs.category?.flatMap((c) => c.coding || []) || [],
+      )
+    )
+      return false;
+    const requestedCodes = (p.get("code") || "")
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (requestedCodes.length > 0) {
+      const match = requestedCodes.some((codeToken) =>
+        tokenMatch(codeToken, obs.code?.coding || []),
+      );
+      if (!match) return false;
+    }
+    return p.getAll("date").every((date) => {
+      const prefix = date.slice(0, 2),
+        day = date.slice(2),
+        actual = (obs.effectiveDateTime || "").slice(0, 10);
+      return (
+        !!actual &&
+        ({
+          ge: actual >= day,
+          le: actual <= day,
+          gt: actual > day,
+          lt: actual < day,
+          eq: actual === day,
+        }[prefix] ??
+          false)
+      );
+    });
+  });
+  list.sort(
+    (a, b) =>
+      (a.effectiveDateTime || "").localeCompare(b.effectiveDateTime || "") *
       (p.get("_sort") === "date" ? 1 : -1),
   );
   return list;

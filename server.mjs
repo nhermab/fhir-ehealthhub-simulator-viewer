@@ -125,7 +125,7 @@ const server = http.createServer(async (req, res) => {
           ? "." + path
           : "./public" + path,
     );
-    if (!file.startsWith(root + "/")) {
+    if (!file.startsWith(root + "/") && !file.startsWith(root + "\\")) {
       res.writeHead(403).end();
       return;
     }

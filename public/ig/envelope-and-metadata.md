@@ -142,7 +142,7 @@ All embedded resources within `contained` target the official Belgian core profi
 ### 3.1 Home Community ID (`BeExtHomeCommunityId`)
 * **URL**: `https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-ext-home-community-id` (or `urn:ihe:iti:xds:2023:homeCommunityId`)
 * **Cardinality**: `1..1` (Mandatory for Interhub exchanges)
-* **Value**: `uri` (e.g., `urn:oid:1.3.6.1.4.1.21297.1.3` for CoZo, `urn:oid:1.3.6.1.4.1.21297.1.1` for BHN), **or** `Identifier` carrying the hub's **eHealth Platform (EHP) number**
+* **Value**: `uri` (e.g., `urn:oid:1.3.6.1.4.1.21297.1.3` for CoZo, `urn:oid:1.3.6.1.4.1.21297.1.1` for Abrumet+), **or** `Identifier` carrying the hub's **eHealth Platform (EHP) number**
 * **Purpose**: Identifies the regional hub responsible for managing the document.
 
 > **Alignment note — hubs are identified by their EHP number today.** In the live KMEHR ecosystem a hub is not addressed by an OID but by its **eHealth Platform number**, a 10-digit `1990……` identifier. Any `homeCommunityId` OID assigned by this IG is therefore an *additional* identifier registered against the hub's EHP number. Essential for cross-community federation, allowing initiating gateways to route retrieve calls to the correct responding hub.

@@ -397,6 +397,43 @@ with urllib.request.urlopen(req) as resp:
       runCommand: "python search_stdlib.py",
       code: stdlibPy,
     })}
+    ${renderCodeCard({
+      id: "py-observations",
+      title: "4. Laboratory Observation Search (Transaction 3 / DIGIRELAB)",
+      description:
+        "Query discrete analyte time series (e.g. Fasting Glucose LOINC <code>1558-6</code>) across federated regional hubs without fetching complete documents.",
+      filename: "search_observations.py",
+      badgeText: "Transaction 3 · PCC-44",
+      code: `import requests
+
+FHIR_BASE = "${base}"
+SSIN = "${ssin}"
+
+# Transaction 3: POST [base]/Observation/_search
+response = requests.post(
+    f"{FHIR_BASE}/Observation/_search",
+    headers={"Accept": "application/fhir+json; fhirVersion=4.0"},
+    data={
+        "patient.identifier": f"https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin|{SSIN}",
+        "code": "http://loinc.org|1558-6",
+        "searchtype": "federated",
+        "_sort": "-date",
+    }
+)
+response.raise_for_status()
+bundle = response.json()
+
+print(f"Total observations found: {bundle.get('total', 0)}")
+for entry in bundle.get("entry", []):
+    res = entry.get("resource", {})
+    if res.get("resourceType") == "Observation":
+        val = res.get("valueQuantity", {})
+        code_text = res.get("code", {}).get("coding", [{}])[0].get("display", "Analyte")
+        print(f"  • {code_text}: {val.get('value')} {val.get('unit')} (Effective: {res.get('effectiveDateTime')})")
+        derived = res.get("derivedFrom", [{}])[0].get("identifier", {}).get("value")
+        print(f"    Source report uniqueId: {derived}")
+`,
+    })}
   </div>`;
 }
 
@@ -597,6 +634,41 @@ export async function fetchPatientDocuments(ssin, baseUrl = "${base}") {
       filename: "interhub-client.js",
       badgeText: "Browser / Frontend",
       code: browserJs,
+    })}
+    ${renderCodeCard({
+      id: "js-observations",
+      title: "3. Laboratory Observation Search (Transaction 3 / DIGIRELAB)",
+      description:
+        "Query discrete laboratory results by LOINC analyte code using native fetch and URLSearchParams.",
+      filename: "search_observations.mjs",
+      badgeText: "Transaction 3 · PCC-44",
+      code: `const FHIR_BASE = "${base}";
+const SSIN = "${ssin}";
+
+const response = await fetch(\`\${FHIR_BASE}/Observation/_search\`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+    Accept: "application/fhir+json; fhirVersion=4.0",
+  },
+  body: new URLSearchParams({
+    "patient.identifier": \`https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin|\${SSIN}\`,
+    code: "http://loinc.org|1558-6",
+    _sort: "-date",
+  }),
+});
+
+if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
+const bundle = await response.json();
+
+console.log(\`Found \${bundle.total} observation(s)\`);
+for (const entry of bundle.entry || []) {
+  const obs = entry.resource;
+  if (obs?.resourceType === "Observation") {
+    console.log(\`\${obs.code.coding[0].display}: \${obs.valueQuantity.value} \${obs.valueQuantity.unit}\`);
+  }
+}
+`,
     })}
   </div>`;
 }
@@ -802,6 +874,41 @@ public class HapiInterhubClient {
       badgeText: "HAPI FHIR R4",
       code: hapiJava,
     })}
+    ${renderCodeCard({
+      id: "java-observations",
+      title: "3. Laboratory Observation Search (Transaction 3)",
+      description:
+        "Query discrete laboratory results using standard Java 11+ HttpClient.",
+      filename: "SearchObservations.java",
+      badgeText: "Transaction 3 · PCC-44",
+      code: `import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+
+public class SearchObservations {
+    public static void main(String[] args) throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        String body = "patient.identifier=" + URLEncoder.encode("https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin|${ssin}", StandardCharsets.UTF_8)
+                    + "&code=" + URLEncoder.encode("http://loinc.org|1558-6", StandardCharsets.UTF_8)
+                    + "&_sort=-date";
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("${base}/Observation/_search"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "application/fhir+json; fhirVersion=4.0")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        System.out.println("Status: " + response.statusCode());
+        System.out.println("Response:\n" + response.body());
+    }
+}
+`,
+    })}
   </div>`;
 }
 
@@ -1002,6 +1109,32 @@ Console.WriteLine($"Found {searchResults.Total} matching documents.");
       runCommand: "dotnet add package Hl7.Fhir.R4",
       code: firelyCs,
     })}
+    ${renderCodeCard({
+      id: "cs-observations",
+      title: "3. Laboratory Observation Search (Transaction 3)",
+      description:
+        "Query discrete analyte results with .NET HttpClient.",
+      filename: "SearchObservations.cs",
+      badgeText: "Transaction 3 · PCC-44",
+      code: `using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading.Tasks;
+
+using var client = new HttpClient();
+var parameters = new[]
+{
+    new KeyValuePair<string, string>("patient.identifier", "https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin|${ssin}"),
+    new KeyValuePair<string, string>("code", "http://loinc.org|1558-6"),
+    new KeyValuePair<string, string>("_sort", "-date")
+};
+
+var response = await client.PostAsync("${base}/Observation/_search", new FormUrlEncodedContent(parameters));
+var json = await response.Content.ReadAsStringAsync();
+Console.WriteLine($"Status: {response.StatusCode}");
+Console.WriteLine(json);
+`,
+    })}
   </div>`;
 }
 
@@ -1135,6 +1268,20 @@ echo "Done! Saved lab-report.pdf."
       }
     ]
   }' --output document.pdf`,
+    })}
+    ${renderCodeCard({
+      id: "curl-observation",
+      title: "5. Laboratory Observation Search (Transaction 3)",
+      description:
+        "Search discrete laboratory results by LOINC code (e.g. Fasting Glucose <code>1558-6</code>).",
+      filename: "curl-observation.sh",
+      badgeText: "POST Observation/_search",
+      code: `curl -X POST "${base}/Observation/_search" \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -H "Accept: application/fhir+json; fhirVersion=4.0" \\
+  --data-urlencode "patient.identifier=https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin|${ssin}" \\
+  --data-urlencode "code=http://loinc.org|1558-6" \\
+  --data-urlencode "_sort=-date"`,
     })}
   </div>`;
 }

@@ -8,7 +8,7 @@
   "experimental": true,
   "date": "2026-09-10T00:00:00Z",
   "publisher": "CoZo Regional Hub",
-  "description": "Running instance of a Belgian federated Interhub responding hub. It implements exactly the two Interhub transactions: getTransactionList (MHD ITI-67 Find DocumentReferences) over HTTP POST [base]/DocumentReference/_search, and getTransaction (Belgian $retrieve-document, gatewaying MHD ITI-68) over HTTP POST [base]/DocumentReference/$retrieve-document. No other interaction is served.",
+  "description": "Running instance of a Belgian federated Interhub responding hub. It implements exactly the three Interhub transactions: getTransactionList (MHD ITI-67 Find DocumentReferences) over HTTP POST [base]/DocumentReference/_search, getTransaction (Belgian $retrieve-document, gatewaying MHD ITI-68) over HTTP POST [base]/DocumentReference/$retrieve-document, and laboratory observation search (based on IHE QEDm PCC-44) over HTTP POST [base]/Observation/_search. No other interaction is served.",
   "kind": "instance",
   "instantiates": [
     "https://www.ehealth.fgov.be/standards/fhir/interhub/CapabilityStatement/BeInterhubDocumentResponder"
@@ -128,7 +128,69 @@
             {
               "name": "retrieve-document",
               "definition": "https://www.ehealth.fgov.be/standards/fhir/interhub/OperationDefinition/be-op-retrieve-document",
-              "documentation": "getTransaction. POST [base]/DocumentReference/$retrieve-document with a Parameters body carrying parameter[name=documentReference].valueReference (a relative reference or a logical reference by business identifier). Returns the https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-document-bundle document Bundle directly, or \u2014 with Accept: application/pdf \u2014 the hub-rendered PDF as a raw binary stream. 410 Gone marks a document withdrawn by its source system, 404 Not Found an unknown one, and 406 Not Acceptable a document this hub does not render as PDF."
+              "documentation": "getTransaction. POST [base]/DocumentReference/$retrieve-document with a Parameters body carrying parameter[name=documentReference].valueReference (a relative reference or a logical reference by business identifier). Returns the https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-document-bundle document Bundle directly, or — with Accept: application/pdf — the hub-rendered PDF as a raw binary stream. 410 Gone marks a document withdrawn by its source system, 404 Not Found an unknown one, and 406 Not Acceptable a document this hub does not render as PDF."
+            }
+          ]
+        },
+        {
+          "type": "Observation",
+          "profile": "https://www.ehealth.fgov.be/standards/fhir/interhub/StructureDefinition/be-interhub-lab-observation",
+          "documentation": "Laboratory observations returned by Transaction 3 (based on IHE QEDm PCC-44). Every reference is a logical reference by national business identifier (subject by SSIN, performer by NIHDI/CBE, derivedFrom by source document uniqueId), so the responding hub needs no endpoints for Patient or Practitioner.",
+          "interaction": [
+            {
+              "code": "search-type",
+              "documentation": "Mandatory laboratory observation search via HTTP POST to [base]/Observation/_search with application/x-www-form-urlencoded body. Returns BeInterhubLabObservation resources extracted from laboratory report documents, each carrying logical references only."
+            }
+          ],
+          "versioning": "no-version",
+          "readHistory": false,
+          "updateCreate": false,
+          "conditionalCreate": false,
+          "conditionalUpdate": false,
+          "conditionalDelete": "not-supported",
+          "searchParam": [
+            {
+              "name": "patient.identifier",
+              "type": "token",
+              "documentation": "Mandatory. Patient national SSIN / INSS as system|value. Both https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin and urn:oid:1.3.6.1.4.1.21297.100.1.1 are accepted."
+            },
+            {
+              "name": "code",
+              "definition": "http://hl7.org/fhir/SearchParameter/clinical-code",
+              "type": "token",
+              "documentation": "Mandatory. One or more LOINC analyte codes (e.g. http://loinc.org|1558-6)."
+            },
+            {
+              "name": "category",
+              "definition": "http://hl7.org/fhir/SearchParameter/Observation-category",
+              "type": "token",
+              "documentation": "Optional, for IHE QEDm compatibility: http://terminology.hl7.org/CodeSystem/observation-category|laboratory."
+            },
+            {
+              "name": "date",
+              "definition": "http://hl7.org/fhir/SearchParameter/clinical-date",
+              "type": "date",
+              "documentation": "Filters observations by effectiveDateTime timestamp range (ge, le, gt, lt)."
+            },
+            {
+              "name": "searchtype",
+              "type": "token",
+              "documentation": "Belgian federation scope: federated (default, fans out across connected hubs) or local (searches only local hub index)."
+            },
+            {
+              "name": "_count",
+              "type": "number",
+              "documentation": "Maximum number of observations returned per page."
+            },
+            {
+              "name": "_sort",
+              "type": "string",
+              "documentation": "Result ordering: -date (default, newest first) or date."
+            },
+            {
+              "name": "_continuation",
+              "type": "token",
+              "documentation": "Opaque next-page token issued in Bundle.link[relation=next].url."
             }
           ]
         }

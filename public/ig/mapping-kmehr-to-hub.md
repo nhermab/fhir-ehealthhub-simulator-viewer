@@ -133,10 +133,12 @@ One trap deserves naming: the `id[@S="ID-KMEHR"]` that appears on the `request` 
 
 ### 3.3 Healthcare Party Type: `CD-HCPARTY` to Contained FHIR Resources
 
+The table below maps the Belgian `CD-HCPARTY` taxonomy to FHIR contained resources and extensions. In particular, the organisation types (`org…`) define the full range of connected care organisations (**data sources / hub sources**) participating in Interhub exchanges beyond acute care hospitals.
+
 | `CD-HCPARTY` class | KMEHR examples | Contained FHIR Resource | Where the code is preserved |
 | :--- | :--- | :--- | :--- |
 | Person types (`pers…`) | `persphysician`, `persnurse`, `persdentist`, `perspharmacist`, `persmidwife`, `persphysiotherapist` | Contained `BePractitioner` / `BePractitionerRole` | `extension[hcPartyType]`, and `PractitionerRole.code` |
-| Organisation types (`org…`) | `orghospital`, `orglaboratory`, `orgpharmacy`, `orgpractice`, `orgpolyclinic`, `orgretirementhome` | Contained `BeOrganization` | `extension[hcPartyType]`, and `Organization.type` |
+| Organisation types (`org…`) | `orghospital` (hospital), `orglaboratory` (lab), `orgpharmacy` (pharmacy), `orgpractice` (practice), `orgpolyclinic` (polyclinic), `orgretirementhome` (retirement home), `orgprimaryhealthcarecenter`, `orgpsychiatriccarehome`, `orgrevalidationcenter`, `orgshelteredliving`, `orgprevention`, `orgpublichealth`, `orginsurance`, `orgpharmacyinvoicingoffice` | Contained `BeOrganization` | `extension[hcPartyType]`, and `Organization.type` |
 | Department / specialty types (`dept…`) | `deptclinicalbiology`, `deptcardiology`, `deptemergency` | Contained `BeOrganization` (`partOf`) or `PractitionerRole.specialty` | `extension[hcPartyType]` |
 | Application / system parties | `application`, `certificateholder` | Contained `Device` (or `BeOrganization` for a hub) | `extension[hcPartyType]` |
 | Patient / related persons | patient-authored content, informal caregiver | Contained `BePatient`, `RelatedPerson` | `extension[hcPartyType]` |

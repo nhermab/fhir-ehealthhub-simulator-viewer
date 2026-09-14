@@ -172,7 +172,7 @@ The national decision turns on a trade-off between **zero-knowledge payload encr
 ### 4.1 Detailed Breakdown of Challenges with E2EE in FHIR:
 
 1. **Loss of Discrete Querying & Indexing (e.g. DIGIRELAB)**:
-   * Under the Belgian **DIGIRELAB Phase 3** vision, clinicians and applications need to query specific lab observations across time (e.g., `GET /Observation?code=1558-6&patient.identifier=...`).
+   * Under the Belgian **DIGIRELAB Phase 3** vision, clinicians and applications need to query specific lab observations across time (the Interhub laboratory observation search, `POST /Observation/_search` with `code=1558-6&patient.identifier=...`, see [Transactions §4](transactions.html#4-transaction-3-laboratory-observation-search-digirelab)).
    * If document bundles are encrypted end-to-end, hubs cannot index internal observations. Consumers are forced to download and decrypt dozens of full documents to extract a single trend curve.
 
 2. **The "Care Team" Multi-Recipient Dilemma**:

@@ -114,6 +114,25 @@ r = await send(
   "application/pdf",
 );
 assert.equal(r.status, 406);
+// Transaction 3: Laboratory Observation Search
+r = await send(
+  "Observation/_search",
+  "POST",
+  "patient.identifier=79080412345&code=http%3A%2F%2Floinc.org%7C1558-6",
+);
+assert.equal(r.status, 200);
+const obsBundle = await r.json();
+assert.equal(obsBundle.type, "searchset");
+assert.ok(obsBundle.entry.some((e) => e.resource.resourceType === "Observation"));
+assert.ok(obsBundle.entry.some((e) => e.resource.resourceType === "OperationOutcome"));
+r = await send(
+  "Observation/_search",
+  "POST",
+  "patient.identifier=79080412345",
+);
+assert.equal(r.status, 400);
+r = await send("Observation/InterhubObsGlucoseDiscreteExample");
+assert.equal(r.status, 404);
 r = await fetch(base + "/api/proxy", {
   method: "POST",
   headers: { "Content-Type": "application/json", Origin: "https://evil.test" },
@@ -128,5 +147,5 @@ r = await fetch(base + "/api/proxy", {
 assert.equal(r.status, 403);
 console.log(
   "Live Java integration: metadata, search, partial failure, FHIR retrieval, PDF, opaque POST pagination, " +
-    "410, 406, 404, 400, the two-transaction surface and proxy origin guards passed.",
+    "Transaction 3 observation search, 410, 406, 404, 400, the three-transaction surface and proxy origin guards passed.",
 );

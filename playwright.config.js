@@ -2,11 +2,11 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/browser",
   timeout: 30000,
-  use: { baseURL: "http://localhost:4173", headless: true },
+  use: { baseURL: "http://127.0.0.1:4173", headless: true },
   reporter: "list",
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:4173",
+    command: "node server.mjs",
+    url: "http://127.0.0.1:4173",
     reuseExistingServer: true,
   },
   projects: [
