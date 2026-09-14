@@ -590,6 +590,8 @@ Title: "Interhub Lab Observation: Fasting Blood Glucose"
 Description: "Fasting glucose result extracted from the laboratory report DocRefLabReportExample, as returned by the Interhub lab observation search. Patient, performer and source document are logical references by business identifier."
 Usage: #example
 * insert LabObservationFromLabReport
+* identifier.system = "https://www.uzleuven.be/lab/result-identifiers"
+* identifier.value = "815933567-glucose"
 * code.coding[loinc] = $LNC#1558-6 "Fasting glucose [Mass/volume] in Serum or Plasma"
 * valueQuantity = 92 'mg/dL' "mg/dL"
 * referenceRange[0].low = 70 'mg/dL' "mg/dL"
@@ -601,6 +603,8 @@ Title: "Interhub Lab Observation: Serum Creatinine"
 Description: "Serum creatinine result extracted from the laboratory report DocRefLabReportExample, as returned by the Interhub lab observation search. Patient, performer and source document are logical references by business identifier."
 Usage: #example
 * insert LabObservationFromLabReport
+* identifier.system = "https://www.uzleuven.be/lab/result-identifiers"
+* identifier.value = "815933567-creatinine"
 * code.coding[loinc] = $LNC#2160-0 "Creatinine [Mass/volume] in Serum or Plasma"
 * valueQuantity = 0.95 'mg/dL' "mg/dL"
 * referenceRange[0].low = 0.70 'mg/dL' "mg/dL"

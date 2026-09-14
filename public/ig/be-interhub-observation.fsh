@@ -18,13 +18,19 @@ RuleSet: LogicalReference(element)
 // Profile: Belgian Interhub Laboratory Observation (DIGIRELAB)
 // =========================================================================
 Profile: BeInterhubLabObservation
-Parent: Observation
+Parent: BeClinicalObservation
 Id: be-interhub-lab-observation
 Title: "Belgian Interhub Laboratory Observation (DIGIRELAB)"
 Description: "Discrete laboratory result extracted from a Belgian Interhub laboratory report document and returned by the Interhub lab observation search. Every reference is a logical reference by national business identifier (patient SSIN, performer NIHDI/CBE, source document uniqueId), so the responding hub needs no endpoint other than DocumentReference and Observation. Each observation links to the DocumentReference it was extracted from, which plays the role of the source entity in IHE mXDE Provenance."
 
 * ^status = #active
 * ^version = "0.1.0"
+
+// Inherit the Belgian clinical baseline from hl7.fhir.be.core-clinical#1.1.0:
+// identifier, subject, effective[x] and performer are mandatory.
+// Keep the laboratory and interhub restrictions below as specializations.
+* identifier ^short = "Business identifier of the individual laboratory result"
+* identifier ^definition = "Identifies the individual result, independently of the resource id and the source document uniqueId in derivedFrom. Preserve the source result's business identifier when available; otherwise the publishing hub assigns a stable identifier in its own namespace."
 
 // Flat payload: everything a consumer needs is inline or identified by business identifier
 * contained 0..0

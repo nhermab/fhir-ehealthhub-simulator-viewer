@@ -314,6 +314,11 @@ export function validateResource(r) {
       walk(e.resource, e.resource, `entry[${i}].resource`);
   } else if (r?.resourceType === "Observation") {
     add(
+      "identifier",
+      r.identifier?.length > 0,
+      "At least one result business identifier (inherited from BeClinicalObservation)",
+    );
+    add(
       "meta.profile",
       r.meta?.profile?.some((p) => p.endsWith("/be-interhub-lab-observation")),
       "Conforms to BeInterhubLabObservation profile",

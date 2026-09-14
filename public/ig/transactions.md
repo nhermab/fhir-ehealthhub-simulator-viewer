@@ -812,6 +812,10 @@ Answering that through the document transactions forces the consumer to:
 
 **Transaction 3** is a federated search that returns the matching lab results directly, as `BeInterhubLabObservation` resources, each linked to the report it was extracted from. The report itself stays the legal reference and is still retrieved with `$retrieve-document`.
 
+`BeInterhubLabObservation` specializes [BeClinicalObservation](https://www.ehealth.fgov.be/standards/fhir/core-clinical/en/StructureDefinition-be-clinical-observation.html) from `hl7.fhir.be.core-clinical` **1.1.0**, using the existing pinned dependency. It inherits mandatory `identifier` (1..*), `subject` (1..1), `effective[x]` (1..1) and `performer` (1..*). The result identifier identifies the individual laboratory result, separately from the resource `id` and the source document uniqueId in `derivedFrom`. Preserve the source result's business identifier when available; otherwise the publishing hub assigns a stable identifier in its own namespace.
+
+The laboratory specialization retains mandatory LOINC coding with open slicing for additional local codes, the laboratory category, UCUM for quantitative values, logical references, and mandatory source-document traceability and routing. BeClinicalObservation explicitly permits LOINC for laboratory tests; no SNOMED CT coding is added as a requirement. Its optional `issued`, `method`, `component` and body-site extensions remain available with inherited Must Support flags. The optional reference elements prohibited below remain 0..0 for interhub exchange, even where the parent marks them Must Support; their context is obtained from the source report.
+
 ---
 
 ### 4.2 References Without Endpoints: Logical References
@@ -825,7 +829,7 @@ In `BeInterhubLabObservation`, every reference is either a logical reference or 
 | Element | Card. | Identified by | Why it is there |
 | :--- | :--- | :--- | :--- |
 | `subject` | **1..1** | SSIN / INSZ (`https://www.ehealth.fgov.be/standards/fhir/core/NamingSystem/ssin`) | The initiating hub merges results from several hubs. It checks that each one belongs to the queried patient before merging, instead of trusting each responder blindly. |
-| `performer` | 0..* | NIHDI or CBE number, typed with `BeExtHcPartyType` | Which laboratory produced the value. Results from different laboratories and methods are not always directly comparable on one curve. |
+| `performer` | **1..*** | NIHDI or CBE number, typed with `BeExtHcPartyType` | Which laboratory produced the value. Results from different laboratories and methods are not always directly comparable on one curve. |
 | `derivedFrom` | **1..1** | Source document **uniqueId** (`urn:ietf:rfc:3986`, = `DocumentReference.masterIdentifier`) | Traceability to the legal report. |
 | `extension[homeCommunityId]` | **1..1** | Hub OID (`urn:oid:1.3.6.1.4.1.21297.1.X`) | Which hub to send `$retrieve-document` to for that report. Same value as on the source `DocumentReference`. |
 | `basedOn`, `partOf`, `focus`, `encounter`, `specimen`, `device`, `hasMember` | 0..0 | — | No national business identifier exists for these, and the context they carry is part of the source report. Panel members are returned as individual observations. |

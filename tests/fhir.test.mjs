@@ -207,6 +207,15 @@ test("validateResource checks BeInterhubLabObservation structural rules and proh
   assert.ok(checks.length > 5);
   assert.ok(checks.every((c) => c.pass), "Valid lab observation passes all structural checks");
 
+  for (const path of ["identifier", "performer"]) {
+    const missing = structuredClone(obs);
+    delete missing[path];
+    assert.ok(
+      validateResource(missing).some((c) => c.path.startsWith(path) && !c.pass),
+      `Missing inherited mandatory ${path} fails structural checks`,
+    );
+  }
+
   // Prohibited elements check
   const badObs = structuredClone(obs);
   badObs.hasMember = [{ reference: "Observation/other" }];
