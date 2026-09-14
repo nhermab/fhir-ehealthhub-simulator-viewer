@@ -195,6 +195,8 @@ Both pages assume [Envelope & Metadata](envelope-and-metadata.html) and [Transac
 
 ### Reference
 
+For discrete laboratory results, go directly to [Laboratory Observation Search (Transaction 3)](transactions.html#lab-observation-search) and its [complete search parameter table](transactions.html#lab-observation-search-parameters). The artifact index lists locally defined artifacts; it does not enumerate every supported query parameter.
+
 | Page | What it covers |
 | :--- | :--- |
 | **[Artifacts](artifacts.html)** | Machine-readable directory of all FHIR profiles, extensions, value sets, code systems, capability statements and examples defined by this guide. |

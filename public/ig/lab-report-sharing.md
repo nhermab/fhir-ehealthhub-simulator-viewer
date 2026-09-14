@@ -9,6 +9,8 @@
 
 ## 1. Overview & Business Context
 
+To query individual laboratory results by patient and LOINC analyte code, see [Laboratory Observation Search (Transaction 3)](transactions.html#lab-observation-search), including its [request encoding and search parameters](transactions.html#lab-observation-search-parameters).
+
 Laboratory results are the highest-volume document category in Belgian hub traffic, and usually the first one an integrator meets. Legacy KMEHR exchanges carried them under the `CD-TRANSACTION` code `labresult`, either as structured KMEHR `<item>` elements or as base64-encoded PDF and text files (the full legacy crosswalk, including the `CD-TRANSACTION` value set, is in [KMEHR to FHIR Mapping](mapping-kmehr-to-hub.html#3-code-system--value-set-crosswalks)).
 
 Under the modernized Interhub FHIR specification, every laboratory report is shared via or published on the hub network as a **self-contained FHIR Document Bundle (`Bundle.type = #document`)**, a paradigm justified in [Design Rationale](resource-considerations.html#2-evaluation-of-candidate-carrier-paradigms) and constrained normatively in [Transactions §3.3](transactions.html#33-payload-structure-strictly-fhir-bundles-of-type-document). Nothing here is invented from scratch: the specification builds directly on **HL7 Belgium (`BeLaboratoryReport`)**, the Belgian **DIGIRELAB Phase 3** initiative and the **EHDS EU Laboratory Report (`Composition-eu-lab`)** standard — the profile-by-profile correspondence with the European specifications is in [EHDS Alignment §2.1](ehds-alignment.html#21-profile-alignment-matrix).

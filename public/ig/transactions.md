@@ -793,7 +793,13 @@ Rules:
 
 ---
 
+<a id="lab-observation-search"></a>
+
 ## 4. Transaction 3: Laboratory Observation Search (DIGIRELAB)
+
+**Implementer entry point:** [Request and search parameters](#lab-observation-search-parameters), [responder capabilities](CapabilityStatement-BeInterhubDocumentResponder.html), [consumer capabilities](CapabilityStatement-BeInterhubDocumentConsumer.html), and the [returned laboratory observation profile](StructureDefinition-be-interhub-lab-observation.html).
+
+The artifact index's **Search Parameters** section lists search parameter definitions authored by this guide, including the custom `searchtype`. It is not the complete list of supported query inputs. The table below specifies all inputs for this transaction, including reused FHIR search parameters and result controls. Laboratory observation search uses `POST Observation/_search`, so it has no custom OperationDefinition.
 
 ### 4.1 Trigger & Scope
 
@@ -883,6 +889,8 @@ A responding hub **SHALL** accept both forms of `documentReference`: the literal
 5. **Consistent routing.** `extension[homeCommunityId]` **SHALL** equal the `homeCommunityId` of the source `DocumentReference`.
 
 ---
+
+<a id="lab-observation-search-parameters"></a>
 
 ### 4.5 HTTP Interaction & Query Parameters
 
