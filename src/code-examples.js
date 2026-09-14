@@ -41,7 +41,7 @@ const icon = (name) => {
 };
 
 function getActiveConfig(state) {
-  const base = state.settings.base || "http://localhost:8080/fhir";
+  const base = state.settings.base || "https://dev-api.ehealthhub.be";
   const patient = state.query?.patient || "79080412345";
   const system = state.query?.system || SSIN;
   const token = state.auth?.token || "";

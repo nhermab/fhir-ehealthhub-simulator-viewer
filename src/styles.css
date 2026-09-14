@@ -19,9 +19,9 @@
   font-size: 14px;
   color-scheme: dark;
 
-  --bg: #0b1210;
-  --panel: #121b18;
-  --soft: #0f1715;
+  --bg: #14171b;
+  --panel: #1c2025;
+  --soft: #181c21;
   --hover: #18231f;
   --line: #223029;
   --line-2: #2a3a32;
@@ -92,7 +92,7 @@
   --dot-glow: #4ade9c22;
 
   /* Sidebar - deliberately darker than the panels in both themes. */
-  --side-bg: #080f0d;
+  --side-bg: #101317;
   --side-fg: #9fb5ac;
   --side-strong: #dbe9e2;
   --side-faint: #71887d;
@@ -353,7 +353,7 @@ input[type="checkbox"] {
   gap: 11px;
   color: var(--side-strong);
   text-decoration: none;
-  font-size: 27px;
+  font-size: 22px;
   font-weight: 660;
   letter-spacing: -1px;
   margin: 0 15px 43px;
@@ -433,7 +433,7 @@ input[type="checkbox"] {
   border: 1px solid var(--side-line);
   border-radius: 9px;
   padding: 17px 14px;
-  background: linear-gradient(130deg, var(--side-tile-a), var(--side-tile-b));
+  background: var(--side-bg);
   font-size: 11px;
   margin-bottom: 23px;
 }
@@ -719,14 +719,15 @@ main {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
-  margin-bottom: 23px;
+  gap: 0;
+  border-block: 1px solid var(--line);
+  margin-bottom: 20px;
 }
 .stat {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 17px 20px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 20px;
 }
 .stat-top {
   display: flex;
@@ -1580,7 +1581,7 @@ main {
   display: flex;
   align-items: center;
   gap: 18px;
-  background: linear-gradient(100deg, var(--banner-a), var(--banner-b));
+  background: var(--soft);
   border: 1px solid var(--banner-line);
   border-radius: 10px;
   padding: 24px;
@@ -3527,3 +3528,11 @@ tr.diff-removed td:first-child code {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Keep the search workspace compact; use colour for results and status. */
+.stat-icon { display: none; }
+.stat-top { font-size: 12px; }
+.stat small { font-size: 11px; }
+.eyebrow { letter-spacing: .08em; }
+.patient-card, .search-panel, .panel, .network-tile { border-radius: 5px; }
+.user .avatar { display: none; }

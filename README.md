@@ -1,6 +1,6 @@
 # Interhub · Belgian MHD workspace
 
-A separate, fully functional web client for the Belgian eHealth Interhub simulator. Includes an offline fixture transport, live FHIR connections, clinical document inspection, and developer authentication tools. The original IG and Java simulator are not modified.
+A separate, fully functional web client for the Belgian eHealth Interhub simulator. Includes an offline fixture transport, live FHIR connections, clinical document inspection, and developer authentication tools. The sibling `hubsharing/` project is the specification source.
 
 ## Run
 
@@ -11,7 +11,9 @@ cd fhir-ehealthhub-simulator-viewer
 npm start
 ```
 
-Open **http://localhost:4173**. The initial demo search uses synthetic SSIN `79080412345` and four copied DocumentReference fixtures. Demo mode works without Java or network access, and mirrors the simulator wire-for-wire: the same three transactions, the same 400/404/406/410 responses, the same opaque paging, and the same `not-supported` refusal for any other path. The bundled Minimal reference intentionally has no retrievable payload (404) and no hub PDF rendering (406).
+Open **http://localhost:4173**. New installations use Live mode and direct browser requests to **https://dev-api.ehealthhub.be**. The hosted frontend is **https://dev.ehealthhub.be/**; static builds use the same defaults. Saved connection preferences take precedence.
+
+Select **Offline demo** in Connections to work without a backend. The initial demo search uses synthetic SSIN `79080412345` and four copied DocumentReference fixtures. Demo mode works without Java or network access, and mirrors the simulator wire-for-wire: the same three transactions, the same 400/404/406/410 responses, the same opaque paging, and the same `not-supported` refusal for any other path. The bundled Minimal reference intentionally has no retrievable payload (404) and no hub PDF rendering (406).
 
 To use the Java app, start it separately, open **Connections**, select **Live**, use `http://localhost:8080/fhir`, keep **Local proxy**, and save. Then run a document search. **Test connection** uses the saved settings.
 

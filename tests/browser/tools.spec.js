@@ -1,4 +1,10 @@
 import { test, expect } from "@playwright/test";
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("interhub-settings"))
+      localStorage.setItem("interhub-settings", JSON.stringify({ mode: "demo" }));
+  });
+});
 
 test("the workspace opens dark, cycles themes and remembers the choice", async ({
   page,

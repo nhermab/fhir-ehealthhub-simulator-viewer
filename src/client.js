@@ -9,9 +9,9 @@ import {
 } from "./fhir.js";
 import { secureHeaders } from "./auth.js";
 export const defaults = {
-  mode: "demo",
-  base: "http://localhost:8080/fhir",
-  transport: "proxy",
+  mode: "live",
+  base: "https://dev-api.ehealthhub.be",
+  transport: "direct",
   timeout: 30000,
   strictSsin: false,
   partial: false,

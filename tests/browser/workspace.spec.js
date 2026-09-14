@@ -1,4 +1,10 @@
 import { test, expect } from "@playwright/test";
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("interhub-settings"))
+      localStorage.setItem("interhub-settings", JSON.stringify({ mode: "demo" }));
+  });
+});
 test("document search, metadata, clinical retrieval, PDF and partial failure", async ({
   page,
 }, testInfo) => {
