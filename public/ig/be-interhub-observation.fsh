@@ -123,7 +123,7 @@ Instance: InterhubSearchType
 InstanceOf: SearchParameter
 Usage: #definition
 Title: "Interhub Federation Scope Search Parameter (searchtype)"
-Description: "Controls whether a query fans out across all federated Belgian regional hubs ('federated', default) or is confined to the receiving hub's local index ('local')."
+Description: "Controls federation scope for DocumentReference and Observation searches: 'federated' (default) permits fan-out to connected hub sources and partner hubs; 'local' confines the query to the receiving hub's own index. See [laboratory search parameters](transactions.html#lab-observation-search-parameters) and [document discovery](transactions.html#22-http-interaction--query-parameters-post-based-search)."
 * url = "https://www.ehealth.fgov.be/standards/fhir/interhub/SearchParameter/interhub-searchtype"
 * name = "InterhubSearchType"
 * status = #active

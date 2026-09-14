@@ -5,7 +5,7 @@ Profile: BeInterhubDocumentBundle
 Parent: Bundle
 Id: be-interhub-document-bundle
 Title: "Belgian Interhub Document Bundle"
-Description: "The canonical document bundle exchanged between Belgian eHealth Hubs and repositories during getTransaction (MHD ITI-68) operations. Under the Belgian Interhub specification, only Bundles of type 'document' are shared across hubs."
+Description: "The canonical document bundle exchanged between Belgian eHealth Hubs and repositories during getTransaction (MHD ITI-68) operations. Retrieved FHIR clinical documents use Bundle.type = 'document' with a root Composition; discovery and laboratory observation search responses use Bundle.type = 'searchset'."
 
 * ^status = #active
 * ^version = "0.1.0"
@@ -16,7 +16,7 @@ Description: "The canonical document bundle exchanged between Belgian eHealth Hu
 * identifier.value 1..1 MS
 
 * type = #document (exactly)
-* type ^short = "Type of bundle - MUST be 'document' for all Interhub sharing"
+* type ^short = "Type of bundle - MUST be 'document' for retrieved FHIR clinical documents"
 
 * timestamp 1..1 MS
 * timestamp ^short = "Document bundle generation timestamp (ISO 8601 UTC)"

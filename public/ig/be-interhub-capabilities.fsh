@@ -90,7 +90,7 @@ Description: "Defines the mandatory capabilities for Belgian eHealth Hubs and re
 
 * rest.resource[1].searchParam[3].name = "date"
 * rest.resource[1].searchParam[3].type = #date
-* rest.resource[1].searchParam[3].documentation = "Filters observations by effectiveDateTime timestamp range (ge, le)."
+* rest.resource[1].searchParam[3].documentation = "Filters observations by effective[x] using ge, le, gt or lt prefixes; at most two date parameters define a range. See [the search parameter table](transactions.html#lab-observation-search-parameters)."
 
 * rest.resource[1].searchParam[4].name = "searchtype"
 * rest.resource[1].searchParam[4].type = #token

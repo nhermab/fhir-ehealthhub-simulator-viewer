@@ -13,7 +13,7 @@
 The **IHE Mobile access to Health Documents (MHD)** profile family offers two main tiers for metadata carrier envelopes: **Minimal** and **Comprehensive**.
 
 * **Comprehensive (National Standard)**: Selected as the normative envelope for all federated Belgian Interhub discovery and retrieval transactions (`getTransactionList` / `getTransaction`). It enforces strict clinical classifications, mandatory creation timestamps, confidentiality labels, and the **Contained Resource pattern** for multi-author attribution and demographic snapshots.
-* **Minimal (Lightweight / Edge Extension)**: Maintained for edge ingest, mobile applications, IoT devices, simplified publishing (`ITI-105`), or non-clinical document references where Comprehensive metadata is either unavailable or unnecessary.
+* **Minimal (Lightweight Alternative)**: Maintained as a lightweight metadata profile where Comprehensive metadata is unavailable. Local ingest, mobile application, IoT and publication workflows (including `ITI-105`) are outside this Interhub guide; retaining this profile does not add those transactions to its scope.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐

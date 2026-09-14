@@ -5,7 +5,7 @@ Profile: BeInterhubMinimalDocumentReference
 Parent: IHE.MHD.Minimal.DocumentReference
 Id: be-interhub-minimal-documentreference
 Title: "Belgian Interhub Minimal DocumentReference (IHE MHD Minimal)"
-Description: "Lightweight Belgian metadata carrier profile for health document discovery and retrieval based on IHE.MHD.Minimal.DocumentReference. Intended for mobile ingest, edge nodes, simplified publication, or non-clinical document references where mandatory Comprehensive attributes (such as facilityType, practiceSetting, contained sourcePatientInfo snapshot, or mandatory creation timestamp) are not required or not available."
+Description: "Lightweight Belgian metadata carrier profile for health document discovery and retrieval based on IHE.MHD.Minimal.DocumentReference. Provides a lightweight alternative where Comprehensive metadata is unavailable. Comprehensive remains the normative envelope for federated Belgian Interhub discovery and retrieval; local ingest and publication workflows are outside this guide. See [Minimal vs. Comprehensive](minimal-vs-comprehensive.html) for scope and constraints."
 
 * ^status = #active
 * ^version = "0.2.0"
